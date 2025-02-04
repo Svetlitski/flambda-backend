@@ -1430,6 +1430,11 @@ let emit_asan_check address (memory_chunk : memory_chunk) (memory_access: memory
   def_label (asan_check_succeded_label);
 ;;
 
+let[@inline always] emit_asan_check address memory_chunk memory_access =
+  if Config.with_address_sanitizer
+  then emit_asan_check address memory_chunk memory_access
+;;
+
 (* Emit an instruction *)
 let emit_instr ~first ~fallthrough i =
   emit_debug_info_linear i;
