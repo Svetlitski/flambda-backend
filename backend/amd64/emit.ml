@@ -1386,8 +1386,10 @@ let emit_asan_check address (memory_chunk : memory_chunk) (memory_access: memory
     I.mov address r10;
     I.and_ (int 7) r10;
     if (log2_size <> 0) then ( I.add (int ((1 lsl log2_size) - 1)) r10);
-    I.cmp (Reg8L R10) (Reg8L R11);
-    I.jbe (label asan_check_succeded_label);
+    (* At this point [r10] now holds [last_accessed_byte] 
+       and [r11] holds [shadow_value]. *)
+    I.cmp (Reg8L R11) (Reg8L R10);
+    I.jl (label asan_check_succeded_label);
     I.call (asan_report_function_name memory_access log2_size);
   | _ -> assert false
   in

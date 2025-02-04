@@ -148,6 +148,7 @@ module I = struct
   let jbe = j BE
   let je = j E
   let jg = j G
+  let jl = j L
   let jmp x = emit (JMP x)
   let jne = j NE
   let jp = j P

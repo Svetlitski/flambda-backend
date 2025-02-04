@@ -152,6 +152,7 @@ module I : sig
   val jbe: arg -> unit
   val je: arg -> unit
   val jg: arg -> unit
+  val jl : arg -> unit
   val jmp: arg -> unit
   val jne: arg -> unit
   val jp: arg -> unit
