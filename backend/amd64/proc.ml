@@ -514,6 +514,9 @@ let destroyed_at_pushtrap =
 let destroyed_at_asan_report =
   [| r11 |]
 
+let destroyed_by_asan =
+  [| r11 |]
+
 let has_pushtrap traps =
   List.exists (function Cmm.Push _ -> true | Pop _ -> false) traps
 
@@ -560,7 +563,12 @@ let destroyed_at_oper = function
   | Iop(Iintop(Idiv | Imod)) | Iop(Iintop_imm((Idiv | Imod), _))
         -> [| rax; rdx |]
   | Iop(Istore(Single { reg = Float64 }, _, _))
-        -> destroy_xmm 15
+        -> Array.append destroyed_by_asan (destroy_xmm 15)
+  | Iop(Istore((Byte_unsigned | Byte_signed | Sixteen_unsigned | Sixteen_signed
+               | Thirtytwo_unsigned | Thirtytwo_signed | Word_int | Word_val
+               | Single { reg = Float32 } | Double
+               | Onetwentyeight_aligned | Onetwentyeight_unaligned), _, _))
+  | Iop(Iload _) -> destroyed_by_asan
   | Iop(Ialloc _ | Ipoll _) -> destroyed_at_alloc_or_poll
   | Iop(Iintop(Imulh _ | Icomp _) | Iintop_imm((Icomp _), _))
         -> [| rax |]
@@ -583,16 +591,12 @@ let destroyed_at_oper = function
   | Iop(Iintop_imm((Iadd | Isub | Imul | Imulh _ | Iand | Ior | Ixor | Ilsl
                    | Ilsr | Iasr | Ipopcnt | Iclz _ | Ictz _),_))
   | Iop(Iintop_atomic _)
-  | Iop(Istore((Byte_unsigned | Byte_signed | Sixteen_unsigned | Sixteen_signed
-               | Thirtytwo_unsigned | Thirtytwo_signed | Word_int | Word_val
-               | Single { reg = Float32 } | Double
-               | Onetwentyeight_aligned | Onetwentyeight_unaligned), _, _))
   | Iop(Imove | Ispill | Ireload | Ifloatop _
        | Icsel _
        | Ireinterpret_cast _ | Istatic_cast _
        | Iconst_int _ | Iconst_float32 _ | Iconst_float _
        | Iconst_symbol _ | Iconst_vec128 _
-       | Itailcall_ind | Itailcall_imm _ | Istackoffset _ | Iload _
+       | Itailcall_ind | Itailcall_imm _ | Istackoffset _
        | Iname_for_debugger _ | Iprobe _| Iprobe_is_enabled _ | Iopaque | Idls_get)
   | Iend | Ireturn _ | Iifthenelse (_, _, _) | Icatch (_, _, _, _)
   | Iexit _ | Iraise _
@@ -618,7 +622,13 @@ let destroyed_at_basic (basic : Cfg_intf.S.basic) =
   | Op (Intop (Idiv | Imod)) | Op (Intop_imm ((Idiv | Imod), _)) ->
     [| rax; rdx |]
   | Op(Store(Single { reg = Float64 }, _, _)) ->
-    destroy_xmm 15
+    Array.append destroyed_by_asan (destroy_xmm 15)
+  | Op(Load _ | Store ((Byte_unsigned | Byte_signed | Sixteen_unsigned
+                         | Sixteen_signed | Thirtytwo_unsigned
+                         | Thirtytwo_signed | Word_int | Word_val
+                         | Double | Single { reg = Float32 }
+                         | Onetwentyeight_aligned | Onetwentyeight_unaligned), _, _)) ->
+                         destroyed_by_asan
   | Op(Intop(Imulh _ | Icomp _) | Intop_imm((Icomp _), _)) ->
     [| rax |]
   | Op (Specific (Irdtsc | Irdpmc)) ->
@@ -634,11 +644,6 @@ let destroyed_at_basic (basic : Cfg_intf.S.basic) =
        | Const_int _ | Const_float _ | Const_float32 _ | Const_symbol _
        | Const_vec128 _
        | Stackoffset _
-       | Load _ | Store ((Byte_unsigned | Byte_signed | Sixteen_unsigned
-                         | Sixteen_signed | Thirtytwo_unsigned
-                         | Thirtytwo_signed | Word_int | Word_val
-                         | Double | Single { reg = Float32 }
-                         | Onetwentyeight_aligned | Onetwentyeight_unaligned), _, _)
        | Intop (Iadd | Isub | Imul | Iand | Ior | Ixor | Ilsl | Ilsr
                | Iasr | Ipopcnt | Iclz _ | Ictz _)
        | Intop_imm ((Iadd | Isub | Imul | Imulh _ | Iand | Ior | Ixor
