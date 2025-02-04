@@ -1331,6 +1331,69 @@ let emit_simd_instr op i =
   | SSE42 (Cmpistrz n) ->
     I.pcmpistri (X86_dsl.int n) (arg i 1) (arg i 0); I.set E (res8 i 0); I.movzx (res8 i 0) (res i 0)
 
+
+let memory_chunk_size_log2 = function
+  | Byte_unsigned | Byte_signed -> 0
+  | Sixteen_unsigned | Sixteen_signed -> 1
+  | Thirtytwo_unsigned | Thirtytwo_signed | Single _ -> 2
+  | Word_int | Word_val | Double -> 3
+  | Onetwentyeight_unaligned | Onetwentyeight_aligned -> 4
+;;
+
+type memory_access = Load | Store
+
+let asan_report_function_name memory_access log2_size =
+  let index =
+    (log2_size lsl 1) + match memory_access with Load -> 0 | Store -> 1
+  in
+  (* We take extra care to structure our code such that these are statically
+     allocated as manifest constants in a flat array. *)
+  match index with
+  | 0 ->  Sym "caml_asan_report_load1_noabort"
+  | 1 ->  Sym "caml_asan_report_store1_noabort"
+  | 2 ->  Sym "caml_asan_report_load2_noabort"
+  | 3 ->  Sym "caml_asan_report_store2_noabort"
+  | 4 ->  Sym "caml_asan_report_load4_noabort"
+  | 5 ->  Sym "caml_asan_report_store4_noabort"
+  | 6 ->  Sym "caml_asan_report_load8_noabort"
+  | 7 ->  Sym "caml_asan_report_store8_noabort"
+  | 8 ->  Sym "caml_asan_report_load16_noabort"
+  | 9 ->  Sym "caml_asan_report_store16_noabort"
+  | _ ->
+    (* Larger loads and stores can be reported using
+       [__asan_report_load_n_noabort], but we don't support this yet. *)
+    assert false
+;;
+
+let emit_asan_check address (memory_chunk : memory_chunk) (memory_access: memory_access) =
+  let log2_size = memory_chunk_size_log2 memory_chunk in
+(*
+  I.ins src dst
+*)
+  I.mov address r11;
+  I.shr (int 3) r11;
+  let () =
+    let shadow_value = mem64 BYTE 0x7FFF8000 R11 in
+    I.cmp (int 0) shadow_value;
+  in
+  (* CR ksvetlitski for ksvetlitski: emit one dedicated ASAN label per [load/store, size, basic-block] *)
+  let asan_check_succeded_label = new_label () in
+  I.je (label asan_check_succeded_label);
+  let () =
+  match log2_size with
+  | 3 | 4 -> I.call (asan_report_function_name memory_access log2_size)
+  | 0 | 1 | 2 ->
+    I.mov address r10;
+    I.and_ (int 7) r10;
+    if (log2_size <> 0) then ( I.add (int ((1 lsl log2_size) - 1)) r10);
+    I.cmp (Reg8L R10) (Reg8L R11);
+    I.jbe (label asan_check_succeded_label);
+    I.call (asan_report_function_name memory_access log2_size);
+  | _ -> assert false
+  in
+  def_label (asan_check_succeded_label);
+;;
+
 (* Emit an instruction *)
 let emit_instr ~first ~fallthrough i =
   emit_debug_info_linear i;
@@ -1468,10 +1531,13 @@ let emit_instr ~first ~fallthrough i =
       let dest = res i 0 in
       begin match memory_chunk with
       | Word_int | Word_val ->
+          emit_asan_check (arg i 0) memory_chunk Load;
           I.mov (addressing addressing_mode QWORD i 0) dest
       | Byte_unsigned ->
+          emit_asan_check (arg i 0) memory_chunk Load;
           I.movzx (addressing addressing_mode BYTE i 0) dest
       | Byte_signed ->
+          emit_asan_check (arg i 0) memory_chunk Load;
           I.movsx (addressing addressing_mode BYTE i 0) dest
       | Sixteen_unsigned ->
           I.movzx (addressing addressing_mode WORD i 0) dest

@@ -512,7 +512,7 @@ let destroyed_at_pushtrap =
    https://clang.llvm.org/docs/AttributeReference.html#preserve-all
 *)
 let destroyed_at_asan_report =
-  [| r11 |]
+  [| r10; r11 |]
 
 let destroyed_by_asan =
   [| r11 |]
