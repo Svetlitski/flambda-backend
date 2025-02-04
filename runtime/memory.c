@@ -200,17 +200,11 @@ Caml_inline void write_barrier(
    }
 }
 
-/* We mark [caml_initialize], [caml_modify], and [caml_modify_local] with
-   [ADDRESS_SANITIZER_DO_NOT_INSTRUMENT] because we generate ASAN checks for
-   [fp] in the OCaml-side codegen. Opting these functions out of instrumentation
-   helps avoid us paying an even steeper performance penalty for ASAN than we
-   already do. */
-
 CAMLno_tsan /* We remove the ThreadSanitizer instrumentation of memory accesses
                by the compiler and instrument manually, because we want
                ThreadSanitizer to see a plain store here (this is necessary to
                detect data races). */
-CAMLexport CAMLweakdef ADDRESS_SANITIZER_DO_NOT_INSTRUMENT
+CAMLexport CAMLweakdef
 void caml_modify (volatile value *fp, value val)
 {
 #if defined(WITH_THREAD_SANITIZER) && defined(NATIVE_CODE)
@@ -300,7 +294,7 @@ CAMLexport void caml_adjust_minor_gc_speed (mlsize_t res, mlsize_t max)
 CAMLno_tsan /* Avoid instrumenting initializing writes with TSan: they should
                never cause data races (albeit for reasons outside of the C11
                memory model). */
-CAMLexport CAMLweakdef ADDRESS_SANITIZER_DO_NOT_INSTRUMENT
+CAMLexport CAMLweakdef
 void caml_initialize (volatile value *fp, value val)
 {
 #ifdef DEBUG
@@ -449,7 +443,7 @@ CAMLexport int caml_is_stack (value v)
    locally-allocated objects. (This version is used by mutations
    generated from OCaml code when the value being modified may be
    locally allocated) */
-CAMLexport ADDRESS_SANITIZER_DO_NOT_INSTRUMENT
+CAMLexport
 void caml_modify_local (value obj, intnat i, value val)
 {
   if (Color_hd(Hd_val(obj)) == NOT_MARKABLE) {

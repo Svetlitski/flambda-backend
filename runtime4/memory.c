@@ -626,12 +626,6 @@ CAMLexport void caml_adjust_gc_speed (mlsize_t res, mlsize_t max)
   }
 }
 
-/* We mark [caml_initialize], [caml_modify], and [caml_modify_local] with
-   [ADDRESS_SANITIZER_DO_NOT_INSTRUMENT] because we generate ASAN checks for
-   [fp] in the OCaml-side codegen. Opting these functions out of instrumentation
-   helps avoid us paying an even steeper performance penalty for ASAN than we
-   already do. */
-
 /* You must use [caml_initialize] to store the initial value in a field of
    a shared block, unless you are sure the value is not a young block.
    A block value [v] is a shared block if and only if [Is_in_heap (v)]
@@ -640,7 +634,7 @@ CAMLexport void caml_adjust_gc_speed (mlsize_t res, mlsize_t max)
 /* [caml_initialize] never calls the GC, so you may call it while a block is
    unfinished (i.e. just after a call to [caml_alloc_shr].) */
 /* PR#6084 workaround: define it as a weak symbol */
-CAMLexport CAMLweakdef ADDRESS_SANITIZER_DO_NOT_INSTRUMENT void caml_initialize (value *fp, value val)
+CAMLexport CAMLweakdef void caml_initialize (value *fp, value val)
 {
   CAMLassert(Is_in_heap_or_young(fp));
   *fp = val;
@@ -660,7 +654,7 @@ CAMLexport CAMLweakdef ADDRESS_SANITIZER_DO_NOT_INSTRUMENT void caml_initialize 
    block being changed is in the minor heap or the major heap. */
 /* PR#6084 workaround: define it as a weak symbol */
 
-CAMLexport CAMLweakdef ADDRESS_SANITIZER_DO_NOT_INSTRUMENT void caml_modify (value *fp, value val)
+CAMLexport CAMLweakdef void caml_modify (value *fp, value val)
 {
   /* The write barrier implemented by [caml_modify] checks for the
      following two conditions and takes appropriate action:
@@ -717,7 +711,7 @@ CAMLexport CAMLweakdef ADDRESS_SANITIZER_DO_NOT_INSTRUMENT void caml_modify (val
    locally-allocated objects. (This version is used by mutations
    generated from OCaml code when the value being modified may be
    locally allocated) */
-CAMLexport ADDRESS_SANITIZER_DO_NOT_INSTRUMENT void caml_modify_local (value obj, intnat i, value val)
+CAMLexport void caml_modify_local (value obj, intnat i, value val)
 {
   if (Color_hd(Hd_val(obj)) == Local_unmarked) {
     Field(obj, i) = val;
