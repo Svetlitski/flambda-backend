@@ -1365,7 +1365,7 @@ let report_asan_error memory_access log2_size address =
          [__asan_report_load_n_noabort], but we don't support this yet. *)
       assert false
   in
-  I.mov address (Reg64 RDI);
+  I.lea address (Reg64 RDI);
   I.call asan_report_function;
 ;;
 
@@ -1379,7 +1379,7 @@ let emit_asan_check address (memory_chunk : memory_chunk) (memory_access: memory
      ```
     *)
   let () =
-    I.mov address r11;
+    I.lea address r11;
     (* These constants come from
        [https://github.com/google/sanitizers/wiki/AddressSanitizerAlgorithm#64-bit]. *)
     I.shr (int 3) r11;
@@ -1564,42 +1564,58 @@ let emit_instr ~first ~fallthrough i =
   | Lop(Stackoffset n) ->
       emit_stack_offset n
   | Lop(Load { memory_chunk; addressing_mode; _ }) ->
-      let () =
-        let address = arg i 0 in
-        emit_asan_check address memory_chunk Load
-      in
       let dest = res i 0 in
       begin match memory_chunk with
       | Word_int | Word_val ->
-          I.mov (addressing addressing_mode QWORD i 0) dest
+          let address = (addressing addressing_mode QWORD i 0) in
+          emit_asan_check address memory_chunk Load;
+          I.mov address dest
       | Byte_unsigned ->
-          I.movzx (addressing addressing_mode BYTE i 0) dest
+          let address = (addressing addressing_mode BYTE i 0) in
+          emit_asan_check address memory_chunk Load;
+          I.movzx  address dest
       | Byte_signed ->
-          I.movsx (addressing addressing_mode BYTE i 0) dest
+          let address = (addressing addressing_mode BYTE i 0) in
+          emit_asan_check address memory_chunk Load;
+          I.movsx  address dest
       | Sixteen_unsigned ->
-          I.movzx (addressing addressing_mode WORD i 0) dest
+          let address = (addressing addressing_mode WORD i 0) in
+          emit_asan_check address memory_chunk Load;
+          I.movzx  address dest
       | Sixteen_signed ->
-          I.movsx (addressing addressing_mode WORD i 0) dest
+          let address = (addressing addressing_mode WORD i 0) in
+          emit_asan_check address memory_chunk Load;
+          I.movsx  address dest
       | Thirtytwo_unsigned ->
-          I.mov (addressing addressing_mode DWORD i 0) (res32 i 0)
+          let address = (addressing addressing_mode DWORD i 0)  in
+          emit_asan_check address memory_chunk Load;
+          I.mov address (res32 i 0)
       | Thirtytwo_signed ->
-          I.movsxd (addressing addressing_mode DWORD i 0) dest
+          let address = (addressing addressing_mode DWORD i 0) in
+          emit_asan_check address memory_chunk Load;
+          I.movsxd  address dest
       | Onetwentyeight_unaligned ->
-          I.movupd (addressing addressing_mode VEC128 i 0) dest
+          let address = (addressing addressing_mode VEC128 i 0) in
+          emit_asan_check address memory_chunk Load;
+          I.movupd  address dest
       | Onetwentyeight_aligned ->
-          I.movapd (addressing addressing_mode VEC128 i 0) dest
+          let address = (addressing addressing_mode VEC128 i 0) in
+          emit_asan_check address memory_chunk Load;
+          I.movapd  address dest
       | Single { reg = Float64 } ->
-          I.cvtss2sd (addressing addressing_mode REAL4 i 0) dest
+          let address = (addressing addressing_mode REAL4 i 0) in
+          emit_asan_check address memory_chunk Load;
+          I.cvtss2sd  address dest
       | Single { reg = Float32 } ->
-          I.movss (addressing addressing_mode REAL4 i 0) dest
+          let address = (addressing addressing_mode REAL4 i 0) in
+          emit_asan_check address memory_chunk Load;
+          I.movss  address dest
       | Double ->
-          I.movsd (addressing addressing_mode REAL8 i 0) dest
+          let address = (addressing addressing_mode REAL8 i 0) in
+          emit_asan_check address memory_chunk Load;
+          I.movsd  address dest
       end
   | Lop(Store(chunk, addr, _)) ->
-      let () =
-        let address = arg i 1 in
-        emit_asan_check address chunk Store
-      in
       begin match chunk with
       | Word_int | Word_val ->
           I.mov (arg i 0) (addressing addr QWORD i 1)
