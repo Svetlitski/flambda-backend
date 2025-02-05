@@ -699,28 +699,6 @@ let is_destruction_point ~(more_destruction_points : bool) (terminator : Cfg_int
     false
   | Switch _ ->
     false
-  | Prim
-      { op =
-          External
-            { func_symbol =
-                ( "caml_asan_report_load1_noabort"
-                | "caml_asan_report_load2_noabort"
-                | "caml_asan_report_load4_noabort"
-                | "caml_asan_report_load8_noabort"
-                | "caml_asan_report_load16_noabort"
-                | "caml_asan_report_store1_noabort"
-                | "caml_asan_report_store2_noabort"
-                | "caml_asan_report_store4_noabort"
-                | "caml_asan_report_store8_noabort"
-                | "caml_asan_report_store16_noabort" );
-              alloc = _;
-              ty_res = _;
-              ty_args = _;
-              stack_ofs = _;
-            };
-        _
-      } ->
-    false
   | Call_no_return { func_symbol = _; alloc; ty_res = _; ty_args = _; }
   | Prim {op = External { func_symbol = _; alloc; ty_res = _; ty_args = _; }; _} ->
     if more_destruction_points then
