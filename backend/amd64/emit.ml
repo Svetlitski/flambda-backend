@@ -1623,24 +1623,42 @@ let emit_instr ~first ~fallthrough i =
   | Lop(Store(chunk, addr, _)) ->
       begin match chunk with
       | Word_int | Word_val ->
-          I.mov (arg i 0) (addressing addr QWORD i 1)
+          let address = (addressing addr QWORD i 1) in
+          emit_asan_check address chunk Store;
+          I.mov (arg i 0)  address
       | Byte_unsigned | Byte_signed ->
-          I.mov (arg8 i 0) (addressing addr BYTE i 1)
+          let address = (addressing addr BYTE i 1) in
+          emit_asan_check address chunk Store;
+          I.mov (arg8 i 0)  address
       | Sixteen_unsigned | Sixteen_signed ->
-          I.mov (arg16 i 0) (addressing addr WORD i 1)
+          let address = (addressing addr WORD i 1) in
+          emit_asan_check address chunk Store;
+          I.mov (arg16 i 0)  address
       | Thirtytwo_signed | Thirtytwo_unsigned ->
-          I.mov (arg32 i 0) (addressing addr DWORD i 1)
+          let address = (addressing addr DWORD i 1) in
+          emit_asan_check address chunk Store;
+          I.mov (arg32 i 0)  address
       | Onetwentyeight_unaligned ->
-          I.movupd (arg i 0) (addressing addr VEC128 i 1)
+          let address = (addressing addr VEC128 i 1) in
+          emit_asan_check address chunk Store;
+          I.movupd (arg i 0)  address
       | Onetwentyeight_aligned ->
-          I.movapd (arg i 0) (addressing addr VEC128 i 1)
+          let address = (addressing addr VEC128 i 1) in
+          emit_asan_check address chunk Store;
+          I.movapd (arg i 0)  address
       | Single { reg = Float64 } ->
           I.cvtsd2ss (arg i 0) xmm15;
-          I.movss xmm15 (addressing addr REAL4 i 1)
+          let address = (addressing addr REAL4 i 1) in
+          emit_asan_check address chunk Store;
+          I.movss xmm15 address
       | Single { reg = Float32 } ->
-          I.movss (arg i 0) (addressing addr REAL4 i 1)
+          let address = (addressing addr REAL4 i 1) in
+          emit_asan_check address chunk Store;
+          I.movss (arg i 0)  address
       | Double ->
-          I.movsd (arg i 0) (addressing addr REAL8 i 1)
+          let address = (addressing addr REAL8 i 1) in
+          emit_asan_check address chunk Store;
+          I.movsd (arg i 0)  address
       end
   | Lop(Alloc { bytes = n; dbginfo; mode = Heap }) ->
       assert (n <= (Config.max_young_wosize + 1) * Arch.size_addr);
