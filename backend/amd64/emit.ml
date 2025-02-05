@@ -1369,8 +1369,36 @@ let report_asan_error memory_access log2_size address =
   I.call asan_report_function;
 ;;
 
+let is_asan_enabled = ref Config.with_address_sanitizer
+
+let command_line_options =
+  [ ( "-fno-asan",
+      Arg.Clear is_asan_enabled,
+      "Disable AddressSanitizer. This is only meaningful if the compiler was \
+       built with AddressSanitizer support enabled." ) ]
+
+(* Checking [Config.with_address_sanitizer] is redundant, but we do it because
+   it's a compile-time constant, so it enables the compiler to completely
+   optimize-out the AddressSanitizer code when the compiler was configured
+   without it. *)
+let[@inline always] is_asan_enabled () = Config.with_address_sanitizer && !is_asan_enabled
+
 (** Implements [https://github.com/google/sanitizers/wiki/AddressSanitizerAlgorithm#mapping]. *)
 let emit_asan_check address (memory_chunk : memory_chunk) (memory_access: memory_access) =
+  I.push r10;
+  I.push r11;
+  (*
+  let must_push_r11 =
+    match address with
+    | Reg8L R11
+    | Reg16 R11
+    | Reg32 R11
+    | Reg64 R11
+    | Mem { base = Some R11; _ }
+    | Mem { idx = R11; _ } -> true
+    | _ -> false
+  in
+  *)
   let asan_check_succeded_label = new_label () in
   (* Place [shadow_value] in [r11].
      ```
@@ -1416,7 +1444,7 @@ let emit_asan_check address (memory_chunk : memory_chunk) (memory_access: memory
         ```
       *)
       let () =
-        I.mov address r10;
+        I.lea address r10;
         I.and_ (int 7) r10;
         if (log2_size <> 0) then ( I.add (int ((1 lsl log2_size) - 1)) r10);
       in
@@ -1428,10 +1456,13 @@ let emit_asan_check address (memory_chunk : memory_chunk) (memory_access: memory
   | _ -> assert false
   in
   def_label (asan_check_succeded_label);
+  I.pop r11;
+  I.pop r10;
 ;;
 
+(* I have at least verified that the bug occurs only when [Store] instrumentation is enabled *)
 let[@inline always] emit_asan_check address memory_chunk memory_access =
-  if Config.with_address_sanitizer
+  if is_asan_enabled ()
   then emit_asan_check address memory_chunk memory_access
 ;;
 
@@ -1625,7 +1656,7 @@ let emit_instr ~first ~fallthrough i =
       | Word_int | Word_val ->
           let address = (addressing addr QWORD i 1) in
           emit_asan_check address chunk Store;
-          I.mov (arg i 0)  address
+          I.mov (arg i 0) address
       | Byte_unsigned | Byte_signed ->
           let address = (addressing addr BYTE i 1) in
           emit_asan_check address chunk Store;
