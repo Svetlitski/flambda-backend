@@ -504,18 +504,26 @@ let destroyed_at_alloc_or_poll =
 let destroyed_at_pushtrap =
   [| r11 |]
 
-(* Per the documentation for [__attribute__((preserve_all))]:
-   > On X86-64 the callee preserves all general purpose registers, except for
-     R11. R11 can be used as a scratch register. Furthermore it also preserves
-     all floating-point registers (XMMs/YMMs).
+let destroyed_at_large_memory_op =
+  if Config.with_address_sanitizer then
+    [| r11 |]
+  else
+    [||]
+;;
 
-   https://clang.llvm.org/docs/AttributeReference.html#preserve-all
-*)
-let destroyed_at_asan_report =
-  [| r10; r11 |]
+let destroyed_at_small_memory_op =
+  if Config.with_address_sanitizer then
+    [| r10; r11 |]
+  else
+    [||]
+;;
 
-let destroyed_by_asan =
-  [| r11 |]
+let destroyed_at_single_float64_store =
+  if Config.with_address_sanitizer then
+    Array.append destroyed_at_small_memory_op (destroy_xmm 15)
+  else
+    (destroy_xmm 15)
+;;
 
 let has_pushtrap traps =
   List.exists (function Cmm.Push _ -> true | Pop _ -> false) traps
@@ -538,24 +546,6 @@ let destroyed_by_simd_op (register_behavior : Simd_proc.register_behavior) =
 (* note: keep this function in sync with `destroyed_at_{basic,terminator}` below. *)
 let destroyed_at_oper = function
     Iop(Icall_ind | Icall_imm _) -> all_phys_regs
-  | Iop
-      (Iextcall
-        { alloc;
-          stack_ofs;
-          func =
-            ( "caml_asan_report_load1_noabort"
-            | "caml_asan_report_load2_noabort"
-            | "caml_asan_report_load4_noabort"
-            | "caml_asan_report_load8_noabort"
-            | "caml_asan_report_load16_noabort"
-            | "caml_asan_report_store1_noabort"
-            | "caml_asan_report_store2_noabort"
-            | "caml_asan_report_store4_noabort"
-            | "caml_asan_report_store8_noabort"
-            | "caml_asan_report_store16_noabort" )
-        }) ->
-    assert (stack_ofs >= 0 && not alloc);
-    destroyed_at_asan_report
   | Iop(Iextcall {alloc; stack_ofs; func }) ->
       assert (stack_ofs >= 0);
       if alloc || stack_ofs > 0 then all_phys_regs
@@ -563,12 +553,13 @@ let destroyed_at_oper = function
   | Iop(Iintop(Idiv | Imod)) | Iop(Iintop_imm((Idiv | Imod), _))
         -> [| rax; rdx |]
   | Iop(Istore(Single { reg = Float64 }, _, _))
-        -> Array.append destroyed_by_asan (destroy_xmm 15)
-  | Iop(Istore((Byte_unsigned | Byte_signed | Sixteen_unsigned | Sixteen_signed
-               | Thirtytwo_unsigned | Thirtytwo_signed | Word_int | Word_val
-               | Single { reg = Float32 } | Double
-               | Onetwentyeight_aligned | Onetwentyeight_unaligned), _, _))
-  | Iop(Iload _) -> destroyed_by_asan
+        -> destroyed_at_single_float64_store
+  | Iop(Istore( (Byte_unsigned | Byte_signed | Sixteen_unsigned | Sixteen_signed | Thirtytwo_unsigned | Thirtytwo_signed | Single { reg = Float32 } ), _, _))
+  | Iop(Iload { memory_chunk =
+                (Byte_unsigned | Byte_signed | Sixteen_unsigned | Sixteen_signed | Thirtytwo_unsigned | Thirtytwo_signed | Single _); _}) -> destroyed_at_small_memory_op
+  | Iop(Istore( (Word_int | Word_val | Double | Onetwentyeight_aligned | Onetwentyeight_unaligned ), _, _))
+  | Iop(Iload { memory_chunk =
+                (Word_int | Word_val | Double | Onetwentyeight_aligned | Onetwentyeight_unaligned ); _}) -> destroyed_at_large_memory_op
   | Iop(Ialloc _ | Ipoll _) -> destroyed_at_alloc_or_poll
   | Iop(Iintop(Imulh _ | Icomp _) | Iintop_imm((Icomp _), _))
         -> [| rax |]
@@ -622,13 +613,15 @@ let destroyed_at_basic (basic : Cfg_intf.S.basic) =
   | Op (Intop (Idiv | Imod)) | Op (Intop_imm ((Idiv | Imod), _)) ->
     [| rax; rdx |]
   | Op(Store(Single { reg = Float64 }, _, _)) ->
-    Array.append destroyed_by_asan (destroy_xmm 15)
-  | Op(Load _ | Store ((Byte_unsigned | Byte_signed | Sixteen_unsigned
-                         | Sixteen_signed | Thirtytwo_unsigned
-                         | Thirtytwo_signed | Word_int | Word_val
-                         | Double | Single { reg = Float32 }
-                         | Onetwentyeight_aligned | Onetwentyeight_unaligned), _, _)) ->
-                         destroyed_by_asan
+    destroyed_at_single_float64_store
+  | Op (Store ((Byte_unsigned | Byte_signed | Sixteen_unsigned | Sixteen_signed | Thirtytwo_unsigned | Thirtytwo_signed | Single { reg = Float32 } ), _, _))
+  | Op (Load { memory_chunk =
+               (Byte_unsigned | Byte_signed | Sixteen_unsigned | Sixteen_signed | Thirtytwo_unsigned | Thirtytwo_signed | Single _); _ }) ->
+    destroyed_at_small_memory_op
+  | Op(Store( (Word_int | Word_val | Double | Onetwentyeight_aligned | Onetwentyeight_unaligned ), _, _))
+  | Op(Load { memory_chunk =
+                (Word_int | Word_val | Double | Onetwentyeight_aligned | Onetwentyeight_unaligned ); _}) ->
+    destroyed_at_large_memory_op
   | Op(Intop(Imulh _ | Icomp _) | Intop_imm((Icomp _), _)) ->
     [| rax |]
   | Op (Specific (Irdtsc | Irdpmc)) ->
@@ -679,29 +672,6 @@ let destroyed_at_terminator (terminator : Cfg_intf.S.terminator) =
     if fp then [| rbp |] else [||]
   | Switch _ ->
     [| rax; rdx |]
-  | Prim
-      { op =
-          External
-            { func_symbol =
-                ( "caml_asan_report_load1_noabort"
-                | "caml_asan_report_load2_noabort"
-                | "caml_asan_report_load4_noabort"
-                | "caml_asan_report_load8_noabort"
-                | "caml_asan_report_load16_noabort"
-                | "caml_asan_report_store1_noabort"
-                | "caml_asan_report_store2_noabort"
-                | "caml_asan_report_store4_noabort"
-                | "caml_asan_report_store8_noabort"
-                | "caml_asan_report_store16_noabort" );
-              alloc;
-              ty_res = _;
-              ty_args = _;
-              stack_ofs
-            };
-        _
-      } ->
-    assert (stack_ofs >= 0 && not alloc);
-    destroyed_at_asan_report
   | Call_no_return { func_symbol = _; alloc; ty_res = _; ty_args = _; stack_ofs; }
   | Prim {op = External { func_symbol = _; alloc; ty_res = _; ty_args = _; stack_ofs; }; _} ->
     assert (stack_ofs >= 0);
