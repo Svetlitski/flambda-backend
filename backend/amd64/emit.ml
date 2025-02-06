@@ -1400,6 +1400,8 @@ let emit_asan_check address (memory_chunk : memory_chunk) (memory_access: memory
   push r10;
   push r11;
   push rdi;
+  (* We need the extra push to keep the stack 16-byte aligned *)
+  push rdi;
   let asan_check_succeded_label = new_label () in
   (* Place [shadow_value] in [r11].
      ```
@@ -1457,6 +1459,7 @@ let emit_asan_check address (memory_chunk : memory_chunk) (memory_access: memory
   | _ -> assert false
   in
   def_label (asan_check_succeded_label);
+  pop rdi;
   pop rdi;
   pop r11;
   pop r10;
