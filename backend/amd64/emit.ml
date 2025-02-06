@@ -1397,7 +1397,7 @@ let[@inline always] uses_register address ~register =
 let uses_destroyed_registers arg =  uses_register arg ~register:R10 || uses_register arg ~register:R11 || uses_register arg ~register:RDI
 
 (** Implements [https://github.com/google/sanitizers/wiki/AddressSanitizerAlgorithm#mapping]. *)
-let emit_asan_check ?src:_ address (memory_chunk : memory_chunk) (memory_access: memory_access) =
+let emit_asan_check ?(dependencies = [||]) address (memory_chunk : memory_chunk) (memory_access: memory_access) =
   assert (not (uses_register address ~register:RSP));
   let need_to_save_registers =
     (*
@@ -1481,9 +1481,9 @@ let emit_asan_check ?src:_ address (memory_chunk : memory_chunk) (memory_access:
 ;;
 
 (* I have at least verified that the bug occurs only when [Store] instrumentation is enabled *)
-let[@inline always] emit_asan_check ?src address memory_chunk memory_access =
+let[@inline always] emit_asan_check ?dependencies address memory_chunk memory_access =
   if is_asan_enabled ()
-  then emit_asan_check ?src address memory_chunk memory_access
+  then emit_asan_check ?dependencies address memory_chunk memory_access
 ;;
 
 (* Emit an instruction *)
@@ -1641,53 +1641,27 @@ let emit_instr ~first ~fallthrough i =
       | Double -> load REAL8 I.movsd
       end
   | Lop(Store(chunk, addr, _)) ->
+      let[@inline always] store data_type arg_func instruction =
+        let address = (addressing addr data_type i 1) in
+        let src = (arg_func i 0) in
+        emit_asan_check ~dependencies:[|src|] address chunk Store;
+        instruction src address
+      in
       begin match chunk with
-      | Word_int | Word_val ->
-          let address = (addressing addr QWORD i 1) in
-          let src = (arg i 0) in
-          emit_asan_check ~src address chunk Store;
-          I.mov src address
-      | Byte_unsigned | Byte_signed ->
-          let address = (addressing addr BYTE i 1) in
-          let src =(arg8 i 0)  in
-          emit_asan_check ~src address chunk Store;
-          I.mov src address
-      | Sixteen_unsigned | Sixteen_signed ->
-          let address = (addressing addr WORD i 1) in
-          let src =(arg16 i 0) in
-          emit_asan_check ~src address chunk Store;
-          I.mov  src address
-      | Thirtytwo_signed | Thirtytwo_unsigned ->
-          let address = (addressing addr DWORD i 1) in
-          let src =(arg32 i 0) in
-          emit_asan_check ~src address chunk Store;
-          I.mov  src address
-      | Onetwentyeight_unaligned ->
-          let address = (addressing addr VEC128 i 1) in
-          let src =(arg i 0) in
-          emit_asan_check ~src address chunk Store;
-          I.movupd  src address
-      | Onetwentyeight_aligned ->
-          let address = (addressing addr VEC128 i 1) in
-          let src =(arg i 0) in
-          emit_asan_check ~src address chunk Store;
-          I.movapd  src address
+      | Word_int | Word_val -> store QWORD arg I.mov
+      | Byte_unsigned | Byte_signed -> store BYTE arg8 I.mov
+      | Sixteen_unsigned | Sixteen_signed -> store WORD arg16 I.mov
+      | Thirtytwo_signed | Thirtytwo_unsigned -> store DWORD arg32 I.mov
+      | Onetwentyeight_unaligned -> store VEC128 arg I.movupd
+      | Onetwentyeight_aligned -> store VEC128 arg I.movapd
       | Single { reg = Float64 } ->
-          I.cvtsd2ss (arg i 0) xmm15;
+          let src = (arg i 0) in
+          I.cvtsd2ss src xmm15;
           let address = (addressing addr REAL4 i 1) in
-          let src = xmm15 in
-          emit_asan_check ~src address chunk Store;
-          I.movss src address
-      | Single { reg = Float32 } ->
-          let address = (addressing addr REAL4 i 1) in
-          let src =(arg i 0) in
-          emit_asan_check ~src address chunk Store;
-          I.movss  src address
-      | Double ->
-          let address = (addressing addr REAL8 i 1) in
-          let src =(arg i 0) in
-          emit_asan_check ~src address chunk Store;
-          I.movsd  src address
+          emit_asan_check ~dependencies:[|src; xmm15|] address chunk Store;
+          I.movss xmm15 address
+      | Single { reg = Float32 } -> store REAL4 arg I.movss
+      | Double -> store REAL8 arg I.movsd
       end
   | Lop(Alloc { bytes = n; dbginfo; mode = Heap }) ->
       assert (n <= (Config.max_young_wosize + 1) * Arch.size_addr);
@@ -1822,7 +1796,7 @@ let emit_instr ~first ~fallthrough i =
          that the backing memory for freshly allocated records is provided directly by the runtime
          and guaranteed to be safe to use. *)
       if is_modify then (
-        emit_asan_check ~src address Word_int Store;
+        emit_asan_check ~dependencies:[|src|] address Word_int Store;
       );
       I.mov src address
   | Lop(Specific(Ioffset_loc(n, addr))) ->
