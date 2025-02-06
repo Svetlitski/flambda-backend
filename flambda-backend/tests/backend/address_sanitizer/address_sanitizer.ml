@@ -399,6 +399,10 @@ let test_out_of_bounds_write_float_bigarray () =
   run_test __FUNCTION__ ~test ~validate:assert_asan_detected_out_of_bounds_write
 ;;
 
+
+(* [access_size] is currently 8 for complex64 bigarrays instead of 16 like you
+   might expect. This might change with the upcoming vectorizer features. *)
+
 let test_out_of_bounds_read_complex64_bigarray () =
   let test () =
     let len = 8 in
@@ -410,7 +414,7 @@ let test_out_of_bounds_read_complex64_bigarray () =
   run_test
     __FUNCTION__
     ~test
-    ~validate:(assert_asan_detected_out_of_bounds_read ~access_size:16)
+    ~validate:(assert_asan_detected_out_of_bounds_read ~access_size:8)
 ;;
 
 let test_out_of_bounds_write_complex64_bigarray () =
@@ -424,7 +428,7 @@ let test_out_of_bounds_write_complex64_bigarray () =
   run_test
     __FUNCTION__
     ~test
-    ~validate:(assert_asan_detected_out_of_bounds_write ~access_size:16)
+    ~validate:(assert_asan_detected_out_of_bounds_write ~access_size:8)
 ;;
 
 let test_out_of_bounds_read_int32_bigarray () =
