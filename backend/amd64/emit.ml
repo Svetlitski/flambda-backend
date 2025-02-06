@@ -1397,12 +1397,15 @@ let[@inline always] uses_register address ~register =
 let uses_destroyed_registers arg =  uses_register arg ~register:R10 || uses_register arg ~register:R11 || uses_register arg ~register:RDI
 
 (** Implements [https://github.com/google/sanitizers/wiki/AddressSanitizerAlgorithm#mapping]. *)
-let emit_asan_check ?src address (memory_chunk : memory_chunk) (memory_access: memory_access) =
+let emit_asan_check ?src:_ address (memory_chunk : memory_chunk) (memory_access: memory_access) =
   assert (not (uses_register address ~register:RSP));
   let need_to_save_registers = 
+    (*
     match src with 
     | None -> uses_destroyed_registers address
     | Some src -> uses_destroyed_registers address || uses_destroyed_registers src
+    *)
+    true
   in
   if need_to_save_registers then (
     push r10;
