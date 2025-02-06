@@ -1399,9 +1399,9 @@ let uses_destroyed_registers arg =  uses_register arg ~register:R10 || uses_regi
 (** Implements [https://github.com/google/sanitizers/wiki/AddressSanitizerAlgorithm#mapping]. *)
 let emit_asan_check ?src:_ address (memory_chunk : memory_chunk) (memory_access: memory_access) =
   assert (not (uses_register address ~register:RSP));
-  let need_to_save_registers = 
+  let need_to_save_registers =
     (*
-    match src with 
+    match src with
     | None -> uses_destroyed_registers address
     | Some src -> uses_destroyed_registers address || uses_destroyed_registers src
     *)
@@ -1621,55 +1621,24 @@ let emit_instr ~first ~fallthrough i =
       emit_stack_offset n
   | Lop(Load { memory_chunk; addressing_mode; _ }) ->
       let dest = res i 0 in
+      let[@inline always] load ?(dest=dest) data_type instruction =
+        let address = (addressing addressing_mode data_type i 0) in
+        emit_asan_check address memory_chunk Load;
+        instruction address dest
+      in
       begin match memory_chunk with
-      | Word_int | Word_val ->
-          let address = (addressing addressing_mode QWORD i 0) in
-          emit_asan_check address memory_chunk Load;
-          I.mov address dest
-      | Byte_unsigned ->
-          let address = (addressing addressing_mode BYTE i 0) in
-          emit_asan_check address memory_chunk Load;
-          I.movzx  address dest
-      | Byte_signed ->
-          let address = (addressing addressing_mode BYTE i 0) in
-          emit_asan_check address memory_chunk Load;
-          I.movsx  address dest
-      | Sixteen_unsigned ->
-          let address = (addressing addressing_mode WORD i 0) in
-          emit_asan_check address memory_chunk Load;
-          I.movzx  address dest
-      | Sixteen_signed ->
-          let address = (addressing addressing_mode WORD i 0) in
-          emit_asan_check address memory_chunk Load;
-          I.movsx  address dest
-      | Thirtytwo_unsigned ->
-          let address = (addressing addressing_mode DWORD i 0)  in
-          emit_asan_check address memory_chunk Load;
-          I.mov address (res32 i 0)
-      | Thirtytwo_signed ->
-          let address = (addressing addressing_mode DWORD i 0) in
-          emit_asan_check address memory_chunk Load;
-          I.movsxd  address dest
-      | Onetwentyeight_unaligned ->
-          let address = (addressing addressing_mode VEC128 i 0) in
-          emit_asan_check address memory_chunk Load;
-          I.movupd  address dest
-      | Onetwentyeight_aligned ->
-          let address = (addressing addressing_mode VEC128 i 0) in
-          emit_asan_check address memory_chunk Load;
-          I.movapd  address dest
-      | Single { reg = Float64 } ->
-          let address = (addressing addressing_mode REAL4 i 0) in
-          emit_asan_check address memory_chunk Load;
-          I.cvtss2sd  address dest
-      | Single { reg = Float32 } ->
-          let address = (addressing addressing_mode REAL4 i 0) in
-          emit_asan_check address memory_chunk Load;
-          I.movss  address dest
-      | Double ->
-          let address = (addressing addressing_mode REAL8 i 0) in
-          emit_asan_check address memory_chunk Load;
-          I.movsd  address dest
+      | Word_int | Word_val -> load QWORD I.mov
+      | Byte_unsigned -> load BYTE I.movzx
+      | Byte_signed -> load BYTE I.movsx
+      | Sixteen_unsigned -> load WORD I.movzx
+      | Sixteen_signed -> load WORD I.movsx
+      | Thirtytwo_unsigned -> load ~dest:(res32 i 0) DWORD I.mov
+      | Thirtytwo_signed -> load DWORD I.movsxd
+      | Onetwentyeight_unaligned -> load VEC128 I.movupd
+      | Onetwentyeight_aligned -> load VEC128 I.movapd
+      | Single { reg = Float64 } -> load REAL4 I.cvtss2sd
+      | Single { reg = Float32 } -> load REAL4 I.movss
+      | Double -> load REAL8 I.movsd
       end
   | Lop(Store(chunk, addr, _)) ->
       begin match chunk with
