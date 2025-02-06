@@ -1435,12 +1435,11 @@ let emit_asan_check address (memory_chunk : memory_chunk) (memory_access: memory
      ```
   *)
   let () =
-    match log2_size with
-    | 3 | 4 ->
+    if log2_size >= 3 then (
       (* There is no slow-path check for word-sized and larger accesses *)
       (* [ ReportError(address, kAccessSize, kIsWrite); ] *)
       report_asan_error memory_access log2_size address
-    | 0 | 1 | 2 ->
+    ) else (
       (* Place [last_accessed_byte] in [r10].
         ```
         last_accessed_byte = (address & 7) + kAccessSize - 1;
@@ -1456,7 +1455,7 @@ let emit_asan_check address (memory_chunk : memory_chunk) (memory_access: memory
       I.jl (label asan_check_succeded_label);
       (* [ ReportError(address, kAccessSize, kIsWrite); ] *)
       report_asan_error memory_access log2_size address
-  | _ -> assert false
+    )
   in
   def_label (asan_check_succeded_label);
   pop rdi;
@@ -1822,8 +1821,15 @@ let emit_instr ~first ~fallthrough i =
       assert (i.arg.(0).loc = i.res.(0).loc)
   | Lop(Specific(Ilea addr)) ->
       I.lea (addressing addr NONE i 0) (res i 0)
-  | Lop(Specific(Istore_int(n, addr, _))) ->
-      I.mov (nat n) (addressing addr QWORD i 0)
+  | Lop(Specific(Istore_int(n, addr, is_modify))) ->
+      let address = (addressing addr QWORD i 0) in
+      (* We can elide the ASAN check for stores made to initialize record fields on the grounds
+         that the backing memory for freshly allocated records is provided directly by the runtime
+         and guaranteed to be safe to use. *)
+      if is_modify then (
+        emit_asan_check address Word_int Store;
+      );
+      I.mov (nat n) address
   | Lop(Specific(Ioffset_loc(n, addr))) ->
       I.add (int n) (addressing addr QWORD i 0)
   | Lop(Specific(Ifloatarithmem(Float64, op, addr))) ->

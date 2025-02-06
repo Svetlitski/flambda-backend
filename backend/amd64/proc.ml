@@ -558,6 +558,7 @@ let destroyed_at_oper = function
   | Iop(Iload { memory_chunk =
                 (Byte_unsigned | Byte_signed | Sixteen_unsigned | Sixteen_signed | Thirtytwo_unsigned | Thirtytwo_signed | Single _); _}) -> destroyed_at_small_memory_op
   | Iop(Istore( (Word_int | Word_val | Double | Onetwentyeight_aligned | Onetwentyeight_unaligned ), _, _))
+  | Iop(Ispecific( Istore_int _))
   | Iop(Iload { memory_chunk =
                 (Word_int | Word_val | Double | Onetwentyeight_aligned | Onetwentyeight_unaligned ); _}) -> destroyed_at_large_memory_op
   | Iop(Ialloc _ | Ipoll _) -> destroyed_at_alloc_or_poll
@@ -574,7 +575,7 @@ let destroyed_at_oper = function
   | Iop(Ispecific(Isimd_mem (op,_))) ->
     destroyed_by_simd_op (Simd_proc.Mem.register_behavior op)
   | Iop(Ispecific(Isextend32 | Izextend32 | Ilea _
-                 | Istore_int (_, _, _) | Ioffset_loc (_, _)
+                 | Ioffset_loc (_, _)
                  | Ipause | Icldemote _ | Iprefetch _
                  | Ifloatarithmem (_, _, _) | Ibswap _))
   | Iop(Iintop(Iadd | Isub | Imul | Iand | Ior | Ixor | Ilsl | Ilsr | Iasr
@@ -619,6 +620,7 @@ let destroyed_at_basic (basic : Cfg_intf.S.basic) =
                (Byte_unsigned | Byte_signed | Sixteen_unsigned | Sixteen_signed | Thirtytwo_unsigned | Thirtytwo_signed | Single _); _ }) ->
     destroyed_at_small_memory_op
   | Op(Store( (Word_int | Word_val | Double | Onetwentyeight_aligned | Onetwentyeight_unaligned ), _, _))
+  | Op(Specific (Istore_int _))
   | Op(Load { memory_chunk =
                 (Word_int | Word_val | Double | Onetwentyeight_aligned | Onetwentyeight_unaligned ); _}) ->
     destroyed_at_large_memory_op
@@ -650,7 +652,7 @@ let destroyed_at_basic (basic : Cfg_intf.S.basic) =
        | Opaque
        | Begin_region
        | End_region
-       | Specific (Ilea _ | Istore_int _ | Ioffset_loc _
+       | Specific (Ilea _ | Ioffset_loc _
                   | Ifloatarithmem _ | Ibswap _
                   | Isextend32 | Izextend32 | Ipause | Icldemote _
                   | Iprefetch _ | Ilfence | Isfence | Imfence)
