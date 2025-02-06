@@ -1383,22 +1383,23 @@ let command_line_options =
    without it. *)
 let[@inline always] is_asan_enabled () = Config.with_address_sanitizer && !is_asan_enabled
 
+let[@inline always] uses_register address ~register =
+  match address with
+  | Reg8L register'
+  | Reg16 register'
+  | Reg32 register'
+  | Reg64 register'
+  | Mem { base = Some register'; _ }
+  | Mem { idx = register'; _ } -> register' == register
+  | _ -> false
+;;
+
 (** Implements [https://github.com/google/sanitizers/wiki/AddressSanitizerAlgorithm#mapping]. *)
 let emit_asan_check address (memory_chunk : memory_chunk) (memory_access: memory_access) =
-  I.push r10;
-  I.push r11;
-  (*
-  let must_push_r11 =
-    match address with
-    | Reg8L R11
-    | Reg16 R11
-    | Reg32 R11
-    | Reg64 R11
-    | Mem { base = Some R11; _ }
-    | Mem { idx = R11; _ } -> true
-    | _ -> false
-  in
-  *)
+  assert (not (uses_register address ~register:RSP));
+  push r10;
+  push r11;
+  push rdi;
   let asan_check_succeded_label = new_label () in
   (* Place [shadow_value] in [r11].
      ```
@@ -1456,8 +1457,9 @@ let emit_asan_check address (memory_chunk : memory_chunk) (memory_access: memory
   | _ -> assert false
   in
   def_label (asan_check_succeded_label);
-  I.pop r11;
-  I.pop r10;
+  pop rdi;
+  pop r11;
+  pop r10;
 ;;
 
 (* I have at least verified that the bug occurs only when [Store] instrumentation is enabled *)
