@@ -1383,29 +1383,20 @@ let command_line_options =
    without it. *)
 let[@inline always] is_asan_enabled () = Config.with_address_sanitizer && !is_asan_enabled
 
-let[@inline always] uses_register address ~register =
-  match address with
-  | Reg8L register'
-  | Reg16 register'
-  | Reg32 register'
-  | Reg64 register'
-  | Mem { base = Some register'; _ }
-  | Mem { idx = register'; _ } -> register' == register
+let[@inline always] uses_destroyed_registers = function
+  | Reg8L (R11 | R10 | RDI)
+  | Reg16 (R11 | R10 | RDI)
+  | Reg32 (R11 | R10 | RDI)
+  | Reg64 (R11 | R10 | RDI)
+  | Mem { base = Some (R11 | R10 | RDI); _ }
+  | Mem { idx = (R11 | R10 | RDI); _ } -> true
   | _ -> false
 ;;
 
-let uses_destroyed_registers arg =  uses_register arg ~register:R10 || uses_register arg ~register:R11 || uses_register arg ~register:RDI
-
 (** Implements [https://github.com/google/sanitizers/wiki/AddressSanitizerAlgorithm#mapping]. *)
 let emit_asan_check ?(dependencies = [||]) address (memory_chunk : memory_chunk) (memory_access: memory_access) =
-  assert (not (uses_register address ~register:RSP));
   let need_to_save_registers =
-    (*
-    match src with
-    | None -> uses_destroyed_registers address
-    | Some src -> uses_destroyed_registers address || uses_destroyed_registers src
-    *)
-    true
+    uses_destroyed_registers address || Array.exists uses_destroyed_registers dependencies
   in
   if need_to_save_registers then (
     push r10;
@@ -1803,12 +1794,14 @@ let emit_instr ~first ~fallthrough i =
       I.add (int n) (addressing addr QWORD i 0)
   | Lop(Specific(Ifloatarithmem(Float64, op, addr))) ->
       let double_address = (addressing addr REAL8 i 1) in
-      emit_asan_check double_address Double Load;
-      instr_for_floatarithmem Float64 op double_address (res i 0)
+      let dest = (res i 0) in
+      emit_asan_check ~dependencies:[|dest|] double_address Double Load;
+      instr_for_floatarithmem Float64 op double_address dest
   | Lop(Specific(Ifloatarithmem(Float32, op, addr))) ->
       let float_address = (addressing addr REAL4 i 1) in
-      emit_asan_check float_address (Single {reg = Float32}) Load;
-      instr_for_floatarithmem Float32 op float_address (res i 0)
+      let dest = (res i 0) in
+      emit_asan_check ~dependencies:[|dest|] float_address (Single {reg = Float32}) Load;
+      instr_for_floatarithmem Float32 op float_address dest
   | Lop(Specific(Ibswap { bitwidth = Sixteen })) ->
       I.xchg ah al;
       I.movzx (res16 i 0) (res i 0)
