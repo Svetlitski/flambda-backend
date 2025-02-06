@@ -556,11 +556,15 @@ let destroyed_at_oper = function
         -> destroyed_at_single_float64_store
   | Iop(Istore( (Byte_unsigned | Byte_signed | Sixteen_unsigned | Sixteen_signed | Thirtytwo_unsigned | Thirtytwo_signed | Single { reg = Float32 } ), _, _))
   | Iop(Iload { memory_chunk =
-                (Byte_unsigned | Byte_signed | Sixteen_unsigned | Sixteen_signed | Thirtytwo_unsigned | Thirtytwo_signed | Single _); _}) -> destroyed_at_small_memory_op
+                (Byte_unsigned | Byte_signed | Sixteen_unsigned | Sixteen_signed | Thirtytwo_unsigned | Thirtytwo_signed | Single _); _})
+  | Iop(Ispecific (Ifloatarithmem (Float32, _, _)))
+              -> destroyed_at_small_memory_op
   | Iop(Istore( (Word_int | Word_val | Double | Onetwentyeight_aligned | Onetwentyeight_unaligned ), _, _))
-  | Iop(Ispecific( Istore_int _))
   | Iop(Iload { memory_chunk =
-                (Word_int | Word_val | Double | Onetwentyeight_aligned | Onetwentyeight_unaligned ); _}) -> destroyed_at_large_memory_op
+                (Word_int | Word_val | Double | Onetwentyeight_aligned | Onetwentyeight_unaligned ); _})
+  | Iop(Ispecific( Istore_int _))
+  | Iop(Ispecific (Ifloatarithmem (Float64, _, _)))
+                -> destroyed_at_large_memory_op
   | Iop(Ialloc _ | Ipoll _) -> destroyed_at_alloc_or_poll
   | Iop(Iintop(Imulh _ | Icomp _) | Iintop_imm((Icomp _), _))
         -> [| rax |]
@@ -576,8 +580,7 @@ let destroyed_at_oper = function
     destroyed_by_simd_op (Simd_proc.Mem.register_behavior op)
   | Iop(Ispecific(Isextend32 | Izextend32 | Ilea _
                  | Ioffset_loc (_, _)
-                 | Ipause | Icldemote _ | Iprefetch _
-                 | Ifloatarithmem (_, _, _) | Ibswap _))
+                 | Ipause | Icldemote _ | Iprefetch _ | Ibswap _))
   | Iop(Iintop(Iadd | Isub | Imul | Iand | Ior | Ixor | Ilsl | Ilsr | Iasr
               | Ipopcnt | Iclz _ | Ictz _ ))
   | Iop(Iintop_imm((Iadd | Isub | Imul | Imulh _ | Iand | Ior | Ixor | Ilsl
@@ -617,12 +620,14 @@ let destroyed_at_basic (basic : Cfg_intf.S.basic) =
     destroyed_at_single_float64_store
   | Op (Store ((Byte_unsigned | Byte_signed | Sixteen_unsigned | Sixteen_signed | Thirtytwo_unsigned | Thirtytwo_signed | Single { reg = Float32 } ), _, _))
   | Op (Load { memory_chunk =
-               (Byte_unsigned | Byte_signed | Sixteen_unsigned | Sixteen_signed | Thirtytwo_unsigned | Thirtytwo_signed | Single _); _ }) ->
+               (Byte_unsigned | Byte_signed | Sixteen_unsigned | Sixteen_signed | Thirtytwo_unsigned | Thirtytwo_signed | Single _); _ })
+  | Op(Specific (Ifloatarithmem (Float32, _, _))) ->
     destroyed_at_small_memory_op
   | Op(Store( (Word_int | Word_val | Double | Onetwentyeight_aligned | Onetwentyeight_unaligned ), _, _))
-  | Op(Specific (Istore_int _))
   | Op(Load { memory_chunk =
-                (Word_int | Word_val | Double | Onetwentyeight_aligned | Onetwentyeight_unaligned ); _}) ->
+                (Word_int | Word_val | Double | Onetwentyeight_aligned | Onetwentyeight_unaligned ); _})
+  | Op(Specific (Istore_int _))
+  | Op(Specific (Ifloatarithmem (Float64, _, _))) ->
     destroyed_at_large_memory_op
   | Op(Intop(Imulh _ | Icomp _) | Intop_imm((Icomp _), _)) ->
     [| rax |]
@@ -652,8 +657,7 @@ let destroyed_at_basic (basic : Cfg_intf.S.basic) =
        | Opaque
        | Begin_region
        | End_region
-       | Specific (Ilea _ | Ioffset_loc _
-                  | Ifloatarithmem _ | Ibswap _
+       | Specific (Ilea _ | Ioffset_loc _ | Ibswap _
                   | Isextend32 | Izextend32 | Ipause | Icldemote _
                   | Iprefetch _ | Ilfence | Isfence | Imfence)
        | Name_for_debugger _ | Dls_get)

@@ -1833,9 +1833,13 @@ let emit_instr ~first ~fallthrough i =
   | Lop(Specific(Ioffset_loc(n, addr))) ->
       I.add (int n) (addressing addr QWORD i 0)
   | Lop(Specific(Ifloatarithmem(Float64, op, addr))) ->
-      instr_for_floatarithmem Float64 op (addressing addr REAL8 i 1) (res i 0)
+      let double_address = (addressing addr REAL8 i 1) in
+      emit_asan_check double_address Double Load;
+      instr_for_floatarithmem Float64 op double_address (res i 0)
   | Lop(Specific(Ifloatarithmem(Float32, op, addr))) ->
-      instr_for_floatarithmem Float32 op (addressing addr REAL4 i 1) (res i 0)
+      let float_address = (addressing addr REAL4 i 1) in
+      emit_asan_check float_address (Single {reg = Float32}) Load;
+      instr_for_floatarithmem Float32 op float_address (res i 0)
   | Lop(Specific(Ibswap { bitwidth = Sixteen })) ->
       I.xchg ah al;
       I.movzx (res16 i 0) (res i 0)
