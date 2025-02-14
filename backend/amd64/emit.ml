@@ -222,7 +222,11 @@ let emit_cmm_symbol (s : Cmm.symbol) =
 let load_symbol_addr s arg =
   match s.sym_global with
   | Local ->
-    I.lea (mem64_rip NONE (label_name (emit_symbol s.sym_name))) arg
+    if !Clflags.pic_code || !Clflags.dlcode then (
+      I.lea (mem64_rip NONE (label_name (emit_symbol s.sym_name))) arg
+    ) else (
+      I.mov (sym (emit_symbol s.sym_name)) arg
+    )
   | Global ->
     if !Clflags.dlcode then
       if windows then begin
@@ -2259,6 +2263,8 @@ let emit_item = function
   | Cdefine_symbol s ->
     begin match s.sym_global with
     | Local ->
+      D.local (emit_symbol s.sym_name);
+      _label (emit_symbol s.sym_name);
       _label (label_name (emit_symbol s.sym_name))
     | Global ->
       global_maybe_protected (emit_symbol s.sym_name);

@@ -86,6 +86,7 @@ module D = struct
   let extrn s ptr = directive (External (s, ptr))
   let file ~file_num ~file_name = directive (File (file_num, file_name))
   let global s = directive (Global s)
+  let local s = directive (Local s)
   let protected s = directive (Protected s)
 
   let hidden s = directive (Hidden s)

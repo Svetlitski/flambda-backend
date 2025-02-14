@@ -418,6 +418,7 @@ type asm_line =
   | Bytes of string
   | Comment of string
   | Global of string
+  | Local of string
   | Protected of string
   | Hidden of string
   | Weak of string

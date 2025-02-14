@@ -2141,6 +2141,7 @@ let assemble_line b loc ins =
         incr loc
     | Comment _ -> ()
     | Global sym -> (get_symbol b sym).sy_binding <- Sy_global
+    | Local _ -> assert false
     | Weak sym -> (get_symbol b sym).sy_binding <- Sy_weak
     | Protected sym -> (get_symbol b sym).sy_protected <- true
     | Quad (Const n) -> buf_int64L b n
