@@ -71,6 +71,8 @@ module type Oxcaml_options = sig
   val module_entry_functions_section : unit -> unit
   val dasm_comments : unit -> unit
   val dno_asm_comments : unit -> unit
+  val frametable_in_rodata : unit -> unit
+  val no_frametable_in_rodata : unit -> unit
   val heap_reduction_threshold : int -> unit
   val zero_alloc_check : string -> unit
   val zero_alloc_assert : string -> unit

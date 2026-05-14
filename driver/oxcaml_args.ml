@@ -268,6 +268,16 @@ let mk_dasm_comments f =
 let mk_dno_asm_comments f =
   ("-dno-asm-comments", Arg.Unit f, " Do not add comments in .s files")
 
+let mk_frametable_in_rodata f =
+  ( "-frametable-in-rodata",
+    Arg.Unit f,
+    " Emit GC frame tables into the .rodata section instead of .text" )
+
+let mk_no_frametable_in_rodata f =
+  ( "-no-frametable-in-rodata",
+    Arg.Unit f,
+    " Emit GC frame tables into the .text section (the default)" )
+
 let mk_heap_reduction_threshold f =
   ( "-heap-reduction-threshold",
     Arg.Int f,
@@ -1237,6 +1247,8 @@ module type Oxcaml_options = sig
   val module_entry_functions_section : unit -> unit
   val dasm_comments : unit -> unit
   val dno_asm_comments : unit -> unit
+  val frametable_in_rodata : unit -> unit
+  val no_frametable_in_rodata : unit -> unit
   val heap_reduction_threshold : int -> unit
   val zero_alloc_check : string -> unit
   val zero_alloc_assert : string -> unit
@@ -1413,6 +1425,8 @@ module Make_oxcaml_options (F : Oxcaml_options) = struct
       mk_module_entry_functions_section F.module_entry_functions_section;
       mk_dasm_comments F.dasm_comments;
       mk_dno_asm_comments F.dno_asm_comments;
+      mk_frametable_in_rodata F.frametable_in_rodata;
+      mk_no_frametable_in_rodata F.no_frametable_in_rodata;
       mk_heap_reduction_threshold F.heap_reduction_threshold;
       mk_zero_alloc_check F.zero_alloc_check;
       mk_zero_alloc_assert F.zero_alloc_assert;
@@ -1650,6 +1664,8 @@ module Oxcaml_options_impl = struct
 
   let dasm_comments = set' Oxcaml_flags.dasm_comments
   let dno_asm_comments = clear' Oxcaml_flags.dasm_comments
+  let frametable_in_rodata = set' Oxcaml_flags.frametable_in_rodata
+  let no_frametable_in_rodata = clear' Oxcaml_flags.frametable_in_rodata
   let dump_inlining_paths = set' Oxcaml_flags.dump_inlining_paths
   let davail = set' Oxcaml_flags.davail
   let dranges = set' Oxcaml_flags.dranges
