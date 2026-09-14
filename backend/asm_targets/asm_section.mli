@@ -59,6 +59,8 @@ type t =
   | Note_gnu_stack
   | Debuginfo_strings  (** Mergeable string section for debuginfo strings *)
   | Frametables  (** Read-only section holding the GC frametables *)
+  | Frame_index
+      (** Read-only section holding the post-link frame-descriptor index *)
   | Custom of
       { names : string list;
         flags : string option;

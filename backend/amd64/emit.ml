@@ -3318,6 +3318,7 @@ let end_assembly () =
     };
   let frametable_sym = S.create_global (Cmm_helpers.make_symbol "frametable") in
   D.size frametable_sym;
+  Emitaux.emit_frame_index_reservation ();
   D.data ();
   Probe_emission.emit_probe_notes ~add_def_symbol;
   emit_trap_notes ();

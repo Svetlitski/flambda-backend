@@ -2354,6 +2354,7 @@ let end_assembly () =
     };
   D.type_symbol ~ty:Object frametable_sym;
   D.size frametable_sym;
+  Emitaux.emit_frame_index_reservation ();
   if not !Oxcaml_flags.internal_assembler
   then Emitaux.Dwarf_helpers.emit_dwarf ();
   Probe_emission.emit_probe_notes ~add_def_symbol:(fun _ -> ());

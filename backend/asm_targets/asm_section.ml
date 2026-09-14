@@ -58,6 +58,7 @@ type t =
   | Note_gnu_stack
   | Debuginfo_strings
   | Frametables
+  | Frame_index
   | Custom of
       { names : string list;
         flags : string option;
@@ -90,7 +91,7 @@ let is_delayed = function
   | Data | Read_only_data | Eight_byte_literals | Sixteen_byte_literals
   | Thirtytwo_byte_literals | Sixtyfour_byte_literals | Jump_tables | Text
   | Function_text _ | Stapsdt_base | Stapsdt_note | Probes | Note_ocaml_eh
-  | Note_gnu_stack | Debuginfo_strings | Frametables ->
+  | Note_gnu_stack | Debuginfo_strings | Frametables | Frame_index ->
     false
   | Custom { is_delayed; _ } -> is_delayed
 
@@ -123,6 +124,7 @@ let print ppf t =
     | Note_gnu_stack -> "Note_gnu_stack"
     | Debuginfo_strings -> "Debuginfo_strings"
     | Frametables -> "Frametables"
+    | Frame_index -> "Frame_index"
     | Custom { names; _ } ->
       Printf.sprintf "(Custom %s)" (String.concat " " names)
   in
@@ -147,7 +149,7 @@ let section_is_text = function
   | Data | Read_only_data | Eight_byte_literals | Sixteen_byte_literals
   | Thirtytwo_byte_literals | Sixtyfour_byte_literals | Jump_tables | DWARF _
   | Stapsdt_base | Stapsdt_note | Probes | Note_ocaml_eh | Note_gnu_stack
-  | Debuginfo_strings | Frametables ->
+  | Debuginfo_strings | Frametables | Frame_index ->
     false
   | Custom { flags; _ } -> (
     (* Check if the section is executable based on flags *)
@@ -292,6 +294,19 @@ let details t first_occurrence =
         | IA32 | X86_64 | POWER | Z | Riscv -> "@progbits"
       in
       ["caml_frametables"], Some "a", [progbits]
+    | Frame_index, _, MacOS_like -> ["__DATA"; "__const"], None, ["regular"]
+    | Frame_index, _, (MinGW_32 | Win32) -> data ()
+    | Frame_index, _, (MinGW_64 | Cygwin) -> [".rdata"], Some "dr", []
+    | Frame_index, arch, _ ->
+      (* The post-link frame-descriptor index (see [Frame_index_layout]): a
+         dedicated read-only, allocated section, kept separate by the linker for
+         the same reason as [Frametables]. *)
+      let progbits =
+        match arch with
+        | ARM | AArch64 -> "%progbits"
+        | IA32 | X86_64 | POWER | Z | Riscv -> "@progbits"
+      in
+      ["caml_frame_index"], Some "a", [progbits]
     | Custom { names; flags; args; _ }, _, _ -> names, flags, args
   in
   let is_delayed = is_delayed t in
@@ -307,6 +322,7 @@ let of_names names =
   | [".rodata.cst32"] -> Some Thirtytwo_byte_literals
   | [".rodata.cst64"] -> Some Sixtyfour_byte_literals
   | ["caml_frametables"] -> Some Frametables
+  | ["caml_frame_index"] -> Some Frame_index
   | [".debug_info"] -> Some (DWARF Debug_info)
   | [".debug_abbrev"] -> Some (DWARF Debug_abbrev)
   | [".debug_aranges"] -> Some (DWARF Debug_aranges)
