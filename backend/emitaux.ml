@@ -158,7 +158,7 @@ let emit_frames ~debug_strings_section a =
   in
   let string_label_rel lbl ofs =
     D.between_this_and_label_offset_32bit_expr
-      ~upper:(string_label ~section:Asm_section.Read_only_data lbl)
+      ~upper:(string_label ~section:Asm_section.Frametables lbl)
       ~offset_upper:(Targetint.of_int32 ofs)
   in
   (* The emit functions below perform bounds checks for the corresponding ranges
@@ -585,7 +585,7 @@ let emit_frames ~debug_strings_section a =
   D.switch_to_section debug_strings_section;
   Hashtbl.iter emit_merged_string filenames;
   Hashtbl.iter emit_merged_string defstrings;
-  D.switch_to_section Asm_section.Read_only_data;
+  D.switch_to_section Asm_section.Frametables;
   frame_descriptors := []
 
 (* Detection of functions that can be duplicated between a DLL and the main
