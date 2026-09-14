@@ -33,10 +33,12 @@
     The runtime ([runtime/frame_descriptors.c]) reads it; the constants here
     must agree with those in [runtime/caml/frame_descriptors.h].
 
-    The section holds a 64-byte header followed by three 64-byte-aligned
-    regions: the bucket table ([u32 bucket[num_granules + 1]]), the
-    return-address offsets ([u32 pc_off[num_entries]]) and the descriptor
-    offsets ([u32 descr_off[num_entries]]). The regions are sized from the
+    The section holds a 64-byte header followed by two 64-byte-aligned
+    regions: the bucket table ([u32 bucket[num_granules + 1]]) and the
+    entries, each the return-address offset of a descriptor within its
+    granule next to the descriptor's offset within the frametables section
+    ([{u32 pc_off; u32 descr_off} entry[num_entries]]), so that a lookup
+    finds both in the same cache line. The regions are sized from the
     reservation recorded in the header (fields [reserved_entries] and
     [bucket_budget]), not from the final entry counts, so their offsets can be
     computed before the index is built. *)
@@ -105,13 +107,14 @@ val of_header : reserved_entries:int -> bucket_budget:int -> t
 
 val round_up : int -> int -> int
 
-(** Byte offsets of the three regions from the start of the section, and the
+(** Size in bytes of an entry of the entries region. *)
+val entry_size : int
+
+(** Byte offsets of the two regions from the start of the section, and the
     total size of the section. *)
 
 val bucket_offset : int
 
-val pc_off_offset : t -> int
-
-val descr_off_offset : t -> int
+val entries_offset : t -> int
 
 val total_bytes : t -> int

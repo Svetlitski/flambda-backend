@@ -37,6 +37,12 @@ typedef struct {
   frame_descr *fd;
 } frame_descr_entry;
 
+/* One entry of the index (see frame_descriptors.h). */
+typedef struct {
+  uint32_t pc_off;
+  uint32_t descr_off;
+} frame_index_entry;
+
 struct caml_frame_descrs {
   int num_descr;
   int mask;
@@ -58,8 +64,7 @@ struct caml_frame_descrs {
   uintnat index_ft_hi;
   uintnat index_bytes;
   const uint32_t *index_bucket;
-  const uint32_t *index_pc_off;
-  const uint32_t *index_descr_off;
+  const frame_index_entry *index_entries;
   /* Xframe_index_check: hash every frametable as well, and check each
      lookup against the hash table. */
   bool index_check;
@@ -339,8 +344,8 @@ static void init_frame_index(caml_frame_descrs *fds)
     caml_read_unaligned_uint32(hdr + Frame_index_bucket_budget_ofs);
   uintnat bucket_region =
     round_up(sizeof(uint32_t) * (budget + 1), Frame_index_region_align);
-  uintnat array_region =
-    round_up(sizeof(uint32_t) * reserved, Frame_index_region_align);
+  uintnat entries_region =
+    round_up(sizeof(frame_index_entry) * reserved, Frame_index_region_align);
   fds->index = hdr;
   fds->index_shift = caml_read_unaligned_uint32(hdr + Frame_index_shift_ofs);
   fds->index_text_lo = read_u64(hdr + Frame_index_text_lo_ofs);
@@ -348,12 +353,10 @@ static void init_frame_index(caml_frame_descrs *fds)
   fds->index_num_entries = read_u64(hdr + Frame_index_num_entries_ofs);
   fds->index_ft_lo = read_u64(hdr + Frame_index_ft_lo_ofs);
   fds->index_ft_hi = read_u64(hdr + Frame_index_ft_hi_ofs);
-  fds->index_bytes = Frame_index_header_size + bucket_region + 2 * array_region;
+  fds->index_bytes = Frame_index_header_size + bucket_region + entries_region;
   fds->index_bucket = (const uint32_t *)(hdr + Frame_index_header_size);
-  fds->index_pc_off = (const uint32_t *)
+  fds->index_entries = (const frame_index_entry *)
     (hdr + Frame_index_header_size + bucket_region);
-  fds->index_descr_off = (const uint32_t *)
-    (hdr + Frame_index_header_size + bucket_region + array_region);
 }
 
 /* Whether the descriptors of [tbl] are covered by the index, so that
@@ -365,14 +368,15 @@ static bool frametable_is_indexed(const caml_frame_descrs *fds,
     && (uintnat)tbl >= fds->index_ft_lo && (uintnat)tbl < fds->index_ft_hi;
 }
 
-/* Find [off] in the sorted run [pc_off[lo], pc_off[hi]); returns [hi]
-   when absent. A scalar scan for now: the offsets of a bucket are
-   contiguous 32-bit words so that this can become a vector compare. */
-Caml_inline uint32_t index_scan_bucket(const uint32_t *pc_off,
+/* Find [off] among the sorted offsets of entries[lo..hi); returns [hi]
+   when absent. A branchy scalar scan: the exit is predicted well when
+   the same frames recur from one collection to the next, which lets
+   the descriptor load issue before the compares resolve. */
+Caml_inline uint32_t index_scan_bucket(const frame_index_entry *entries,
                                        uint32_t lo, uint32_t hi, uint32_t off)
 {
   for (uint32_t i = lo; i < hi; i++) {
-    if (pc_off[i] == off) return i;
+    if (entries[i].pc_off == off) return i;
   }
   return hi;
 }
@@ -387,9 +391,9 @@ Caml_inline frame_descr *index_lookup(const caml_frame_descrs *fds,
   uint32_t lo = fds->index_bucket[g];
   uint32_t hi = fds->index_bucket[g + 1];
   uint32_t off = (uint32_t)(rel & (((uintnat)1 << fds->index_shift) - 1));
-  uint32_t i = index_scan_bucket(fds->index_pc_off, lo, hi, off);
+  uint32_t i = index_scan_bucket(fds->index_entries, lo, hi, off);
   if (i == hi) return NULL;
-  return (frame_descr *)(fds->index_ft_lo + fds->index_descr_off[i]);
+  return (frame_descr *)(fds->index_ft_lo + fds->index_entries[i].descr_off);
 }
 
 static void report_index(const caml_frame_descrs *fds)
