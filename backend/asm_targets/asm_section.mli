@@ -58,6 +58,7 @@ type t =
   | Note_ocaml_eh
   | Note_gnu_stack
   | Debuginfo_strings  (** Mergeable string section for debuginfo strings *)
+  | Frametables  (** Read-only section holding the GC frametables *)
   | Custom of
       { names : string list;
         flags : string option;
