@@ -303,13 +303,15 @@ Caml_inline bool frame_has_debug(frame_descr *d) {
  *   bucket table at 64: u32 bucket[G + 1], in a region of
  *      round_up(4 * (B + 1), 64) bytes; bucket[g] is the index of the
  *      first entry whose return address lies in granule g; bucket[G] = N
- *   pc_off:    u32 pc_off[N],    region of round_up(4 * R, 64) bytes
- *   descr_off: u32 descr_off[N], same region size
+ *   entries: struct { u32 pc_off; u32 descr_off; } entry[N], in a
+ *      region of round_up(8 * R, 64) bytes
  *
  * Entries are sorted by return address; entry i has return address
- * text_lo + (g << shift) + pc_off[i] for its granule g, and its
- * descriptor is at ft_lo + descr_off[i]. A lookup reads bucket[g] and
- * bucket[g + 1] (one cache line) and scans pc_off over that range. */
+ * text_lo + (g << shift) + entry[i].pc_off for its granule g, and its
+ * descriptor is at ft_lo + entry[i].descr_off. A lookup reads bucket[g]
+ * and bucket[g + 1] (one cache line) and scans the entries of that
+ * range; an entry's offset and descriptor share a cache line, so a
+ * lookup that misses the caches pays for two lines, not three. */
 
 #define CAML_FRAME_INDEX_MAGIC 0x0FEF4F5849445801ULL
 #define CAML_FRAME_INDEX_VERSION 1

@@ -468,13 +468,13 @@ let serialize index =
   Array.iteri
     (fun g first -> set_u32 (Layout.bucket_offset + (4 * g)) first)
     index.bucket;
-  let pc_off = Layout.pc_off_offset layout in
-  let descr_off = Layout.descr_off_offset layout in
+  let entries = Layout.entries_offset layout in
   let granule_mask = (1 lsl index.shift) - 1 in
   Array.iteri
     (fun i (retaddr, body) ->
-      set_u32 (pc_off + (4 * i)) ((retaddr - index.text_lo) land granule_mask);
-      set_u32 (descr_off + (4 * i)) (body - index.ft_lo))
+      let entry = entries + (Layout.entry_size * i) in
+      set_u32 entry ((retaddr - index.text_lo) land granule_mask);
+      set_u32 (entry + 4) (body - index.ft_lo))
     index.entries;
   bytes
 
@@ -498,14 +498,15 @@ let lookup buf ~at pc =
     let lo = u32 (Layout.bucket_offset + (4 * granule)) in
     let hi = u32 (Layout.bucket_offset + (4 * (granule + 1))) in
     let off = (pc - text_lo) land ((1 lsl shift) - 1) in
-    let pc_off = Layout.pc_off_offset layout in
-    let descr_off = Layout.descr_off_offset layout in
+    let entries = Layout.entries_offset layout in
     let rec scan i =
       if i >= hi
       then None
-      else if u32 (pc_off + (4 * i)) = off
-      then Some (u64 Layout.ft_lo_offset + u32 (descr_off + (4 * i)))
-      else scan (i + 1)
+      else
+        let entry = entries + (Layout.entry_size * i) in
+        if u32 entry = off
+        then Some (u64 Layout.ft_lo_offset + u32 (entry + 4))
+        else scan (i + 1)
     in
     scan lo
 

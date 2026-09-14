@@ -45,7 +45,9 @@ let min_shift = 9
 
 let max_shift = 20
 
-let entry_size = 4
+let bucket_word_size = 4
+
+let entry_size = 8
 
 let magic_offset = 0
 
@@ -88,15 +90,15 @@ let is_empty t = t.reserved_entries = 0
 let bucket_region t =
   if is_empty t
   then 0
-  else round_up (entry_size * (t.bucket_budget + 1)) region_align
+  else round_up (bucket_word_size * (t.bucket_budget + 1)) region_align
 
-let array_region t =
-  if is_empty t then 0 else round_up (entry_size * t.reserved_entries) region_align
+let entries_region t =
+  if is_empty t
+  then 0
+  else round_up (entry_size * t.reserved_entries) region_align
 
 let bucket_offset = header_size
 
-let pc_off_offset t = bucket_offset + bucket_region t
+let entries_offset t = bucket_offset + bucket_region t
 
-let descr_off_offset t = pc_off_offset t + array_region t
-
-let total_bytes t = header_size + bucket_region t + (2 * array_region t)
+let total_bytes t = header_size + bucket_region t + entries_region t
