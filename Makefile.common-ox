@@ -33,11 +33,18 @@ define dune_boot_context
       ("OC_CFLAGS_SEXP" "boot_oc_cflags.sexp"))))))
 endef
 
+# The parser generated in the boot context is reused by the other contexts
+# (see the root dune file).
+boot_parser_dir = _build/_bootinstall/parser
+
 ifneq ($(origin BUILD_OCAMLPARAM), undefined)
-ENV_VARS := (env-vars ("OCAMLPARAM" "$(BUILD_OCAMLPARAM)"))
+OCAMLPARAM_ENV_VAR := ("OCAMLPARAM" "$(BUILD_OCAMLPARAM)")
 else
-ENV_VARS :=
+OCAMLPARAM_ENV_VAR :=
 endif
+
+ENV_VARS := (env-vars $(OCAMLPARAM_ENV_VAR) \
+  ("OXCAML_BOOT_PARSER_DIR" "$(CURDIR)/$(boot_parser_dir)"))
 
 ifeq ($(main_build_profile),dev)
 main_ocamlopt_optimization_flags :=
@@ -91,8 +98,13 @@ boot_targets = \
   $(boot_ocamlobjinfo) \
   ocamltest/ocamltest.native
 
+boot_parser_files = parser.ml parser.mli parser.cmly
+
 boot-compiler: _build/_bootinstall
-	$(dune) build $(ws_boot) $(coverage_dune_flags) @merlin-support $(boot_targets)
+	$(dune) build $(ws_boot) $(coverage_dune_flags) @merlin-support $(boot_targets) \
+	  $(boot_parser_files)
+	mkdir -p $(boot_parser_dir)
+	cp -f $(addprefix _build/default/,$(boot_parser_files)) $(boot_parser_dir)/
 
 boot-runtest: boot-compiler
 	$(dune) build $(ws_boot) $(coverage_dune_flags) --force $(runtest_targets)
@@ -177,7 +189,7 @@ runtest-dwarf: compiler
 duneconf/boot.ws: export contents = $(dune_boot_context)
 duneconf/runtime_stdlib.ws: export contents = $(dune_runtime_stdlib_context)
 duneconf/main.ws: export contents = $(dune_main_context)
-duneconf/%.ws:
+duneconf/%.ws: Makefile.common-ox
 	echo "$$contents" > $@
 
 # We need to disable ocaml/otherlibs when compiling with coverage, because we

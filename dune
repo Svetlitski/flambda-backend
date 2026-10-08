@@ -85,8 +85,30 @@
 
 (copy_files# printer/*.ml{,i})
 
+; The parser is only generated in the boot context. The other contexts reuse
+; it (it is staged by the boot-compiler target of Makefile.common-ox): with the
+; boot compiler, generating it takes several seconds (Menhir needs a mock
+; implementation to be type-checked), which delays ocamlcommon and hence
+; most of the compiler.
+
+(rule
+ (enabled_if
+  (<> %{context_name} default))
+ (targets parser.ml parser.mli parser.cmly)
+ (deps
+  (:ml %{env:OXCAML_BOOT_PARSER_DIR=boot-parser-not-staged}/parser.ml)
+  (:mli %{env:OXCAML_BOOT_PARSER_DIR=boot-parser-not-staged}/parser.mli)
+  (:cmly %{env:OXCAML_BOOT_PARSER_DIR=boot-parser-not-staged}/parser.cmly))
+ (action
+  (progn
+   (copy %{ml} parser.ml)
+   (copy %{mli} parser.mli)
+   (copy %{cmly} parser.cmly))))
+
 (menhir
  (modules parser)
+ (enabled_if
+  (= %{context_name} default))
  (flags
   --lalr
   --explain
