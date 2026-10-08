@@ -656,6 +656,17 @@ val reset_cache: preserve_persistent_env:bool -> unit
 (* To be called before each toplevel phrase. *)
 val reset_cache_toplevel: unit -> unit
 
+(* Incremented whenever [reset_cache] or [reset_cache_toplevel] is called.
+   Caches derived from type lookups must be invalidated when it changes. *)
+val type_lookup_generation: unit -> int
+
+(* [same_type_lookups env1 env2] is a conservative check that looking up
+   types, modules, module types, classes, class types and kinds by path, as
+   well as local constraints, behaves identically in [env1] and [env2] (for
+   the same [type_lookup_generation]). Bindings of values, constructors and
+   labels are ignored. *)
+val same_type_lookups: t -> t -> bool
+
 (* Remember the current compilation unit. *)
 val set_current_unit: Unit_info.t -> unit
 val get_current_unit : unit -> Unit_info.t option

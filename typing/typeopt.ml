@@ -606,24 +606,36 @@ let add_nullability_from_ty env ty raw_kind =
 let fallback_if_missing_cmi ~default f =
   try f () with Missing_cmi_fallback -> default
 
-(* CR layouts v2.5: It will be possible for subcomponents of types to be
-   non-values for non-error reasons (e.g., [type t = { x : float# }
-   [@@unboxed]).  And in later releases, this will also happen in normal
-   records, variants, tuples...
+(* State used to memoize [value_kind]; see [Value_kind_memo] below. When
+   [probing] is set, [value_kind] records the ids of the types whose
+   membership in [visited] can affect its result (those tested at depth at
+   most 1), and whether any of those membership tests succeeded. *)
+type value_kind_probes =
+  { mutable probing : bool;
+    mutable probed_ids : int list;
+    mutable visited_hit : bool
+  }
 
-   The current layout checks are overly conservative in those cases, because
-   they are currently errors.  Instead, recursive calls to value kind should
-   check the sorts of the relevant types.  Ideally this wouldn't involve
-   expensive layout computation, because the sorts are stored somewhere (e.g.,
-   [record_representation]).  But that's not currently the case for tuples. *)
+let probes = { probing = false; probed_ids = []; visited_hit = false }
+
 let rec value_kind env ~loc ~visited ~depth ~num_nodes_visited (ty : type_expr)
   : int * value_kind =
+  value_kind_scraped env ~loc ~visited ~depth ~num_nodes_visited ty
+    (scrape_ty env ty)
+
+and value_kind_scraped env ~loc ~visited ~depth ~num_nodes_visited
+      (ty : type_expr) (scraped : type_expr option) : int * value_kind =
   let[@inline] cannot_proceed () =
-    Numbers.Int.Set.mem (get_id ty) visited
-    || depth >= 2
-    || num_nodes_visited >= 30
+    let id = get_id ty in
+    let is_visited = Numbers.Int.Set.mem id visited in
+    let within_bounds = depth < 2 && num_nodes_visited < 30 in
+    if probes.probing && within_bounds then begin
+      probes.probed_ids <- id :: probes.probed_ids;
+      if is_visited then probes.visited_hit <- true
+    end;
+    is_visited || not within_bounds
   in
-  match scrape_ty env ty with
+  match scraped with
   | None -> num_nodes_visited, non_nullable Pgenval
   | Some scty ->
   begin
@@ -1201,13 +1213,167 @@ and value_kind_immutable_record env ~loc ~visited ~depth ~num_nodes_visited
        non_nullable (Pvariant { consts = []; non_consts }))
     end
 
+(* Memoization of [value_kind].
+
+   [value_kind] is computed for the types of most expressions and bound
+   variables during translation, and exploring type declarations requires many
+   environment lookups. Most of these computations are on the same few closed
+   types in environments with the same type bindings, so we memoize them.
+
+   Memoization must not change results. The result of [value_kind env ty] is
+   determined by the type lookups in [env], the structure of the scraped type,
+   and the identities of the type nodes whose membership in [visited] is tested
+   at depth at most 1 (deeper, the result of the test does not matter). We
+   only memoize:
+   - types built only from type constructors, without cycles ([key]);
+   - for environments with the same type lookups ([Env.same_type_lookups]);
+   - computations in which no membership test in [visited] succeeded.
+
+   The computations of the value kinds of two types with the same [key]
+   explore the same positions, which contain the same nodes, except for
+   positions containing nodes of the types themselves (or fresh copies). A
+   memoized result is reused for a type only if none of its nodes were probed
+   by the memoized computation, except the top-level type of that computation
+   at the top-level position. Then, as types are acyclic, no membership test
+   in [visited] succeeds for that type either, so the computations are
+   identical. *)
+module Value_kind_memo : sig
+  val find_or_compute :
+    Env.t -> type_expr -> scraped:type_expr option ->
+    (unit -> value_kind) -> value_kind
+end = struct
+  type key = Key of Path.t * key list
+
+  let rec equal_key (Key (p1, args1)) (Key (p2, args2)) =
+    Path.same p1 p2 && List.equal equal_key args1 args2
+
+  module Tbl = Hashtbl.Make (struct
+    type t = key
+    let equal = equal_key
+    let hash = Hashtbl.hash
+  end)
+
+  type entry =
+    { result : value_kind;
+      probed_ids : Numbers.Int.Set.t
+    }
+
+  type context =
+    { env : Env.t;
+      table : entry Tbl.t
+    }
+
+  let max_contexts = 8
+
+  let max_key_size = 16
+
+  (* Most recently used first *)
+  let contexts : context list ref = ref []
+
+  let generation = ref (-1)
+
+  let get_context env =
+    let current_generation = Env.type_lookup_generation () in
+    if current_generation <> !generation then begin
+      generation := current_generation;
+      contexts := []
+    end;
+    let matches context = Env.same_type_lookups context.env env in
+    match !contexts with
+    | context :: _ when matches context -> context
+    | all_contexts ->
+      let matching, others = List.partition matches all_contexts in
+      let context =
+        match matching with
+        | context :: _ -> context
+        | [] -> { env; table = Tbl.create 64 }
+      in
+      contexts :=
+        context :: List.filteri (fun i _ -> i < max_contexts - 1) others;
+      context
+
+  exception Not_memoizable
+
+  (* The key of [scraped], the scraped version of [ty], and the ids of the
+     nodes of [ty] and of the arguments of [scraped]. *)
+  let key_and_ids ~ty scraped =
+    let size = ref 0 in
+    let ids = ref [get_id ty] in
+    let rec key_of ~ancestors ty =
+      incr size;
+      if !size > max_key_size then raise Not_memoizable;
+      match get_desc ty with
+      | Tconstr (p, args, _) ->
+        let ancestors = get_id ty :: ancestors in
+        Key (p, List.map (arg_key_of ~ancestors) args)
+      | _ -> raise Not_memoizable
+    and arg_key_of ~ancestors ty =
+      let id = get_id ty in
+      if List.mem id ancestors then raise Not_memoizable;
+      ids := id :: !ids;
+      key_of ~ancestors ty
+    in
+    match key_of ~ancestors:[get_id ty] scraped with
+    | key -> Some (key, !ids)
+    | exception Not_memoizable -> None
+
+  let compute_and_probe compute =
+    probes.probing <- true;
+    probes.probed_ids <- [];
+    probes.visited_hit <- false;
+    let stop_probing () =
+      probes.probing <- false;
+      probes.probed_ids <- []
+    in
+    match compute () with
+    | result ->
+      let probed_ids = probes.probed_ids
+      and visited_hit = probes.visited_hit in
+      stop_probing ();
+      result, probed_ids, visited_hit
+    | exception exn ->
+      stop_probing ();
+      raise exn
+
+  let find_or_compute env ty ~scraped compute =
+    match scraped with
+    | None -> compute ()
+    | Some _ when probes.probing -> compute ()
+    | Some scraped ->
+      match key_and_ids ~ty scraped with
+      | None -> compute ()
+      | Some (key, ids) ->
+        let context = get_context env in
+        match Tbl.find_opt context.table key with
+        | Some { result; probed_ids } ->
+          if List.exists (fun id -> Numbers.Int.Set.mem id probed_ids) ids
+          then compute ()
+          else result
+        | None ->
+          let result, probed_ids, visited_hit = compute_and_probe compute in
+          if not visited_hit then begin
+            (* The first probe, if any, is that of [ty] at the top level. Any
+               other probe of [ty] would have succeeded. *)
+            let top_id = get_id ty in
+            let probed_ids =
+              List.fold_left (fun set id ->
+                  if id = top_id then set else Numbers.Int.Set.add id set)
+                Numbers.Int.Set.empty probed_ids
+            in
+            Tbl.add context.table key { result; probed_ids }
+          end;
+          result
+end
+
 let value_kind env loc ty =
   try
-    let (_num_nodes_visited, value_kind) =
-      value_kind env ~loc ~visited:Numbers.Int.Set.empty ~depth:0
-        ~num_nodes_visited:0 ty
-    in
-    value_kind
+    let scraped = scrape_ty env ty in
+    Value_kind_memo.find_or_compute env ty ~scraped (fun () ->
+      let (_num_nodes_visited, value_kind) =
+        value_kind_scraped env ~loc ~visited:Numbers.Int.Set.empty ~depth:0
+          ~num_nodes_visited:0 ty scraped
+      in
+      value_kind)
   with
   | Missing_cmi_fallback ->
     raise (Error (loc, Non_value_layout (env, ty, None)))

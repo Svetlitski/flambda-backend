@@ -466,6 +466,17 @@ module IdTbl =
     let add_lock lock next =
       { current = Ident.empty; layer = Lock {lock; next} }
 
+    (* Lock layers are ignored by [find_same_without_locks], so two tables
+       that only differ by outermost lock layers have the same lock-free
+       bindings. *)
+    let rec strip_locks tbl =
+      match tbl.layer with
+      | Lock {lock=_; next} when tbl.current == Ident.empty -> strip_locks next
+      | Open _ | Map _ | Lock _ | Nothing -> tbl
+
+    let same_ignoring_locks tbl1 tbl2 =
+      tbl1 == tbl2 || strip_locks tbl1 == strip_locks tbl2
+
     let map f next =
       {
         current = Ident.empty;
@@ -1291,17 +1302,38 @@ let reset_declaration_caches () =
   Types.Uid.Tbl.clear !used_labels;
   ()
 
+let type_lookup_generation = s_ref 0
+
 let reset_cache ~preserve_persistent_env =
   Current_unit.unset ();
   if not preserve_persistent_env then
     Persistent_env.clear !persistent_env;
   reset_declaration_caches ();
+  incr type_lookup_generation;
   ()
 
 let reset_cache_toplevel () =
   Persistent_env.clear_missing !persistent_env;
   reset_declaration_caches ();
+  incr type_lookup_generation;
   ()
+
+let type_lookup_generation () = !type_lookup_generation
+
+let same_type_lookups env1 env2 =
+  env1 == env2
+  || IdTbl.same_ignoring_locks env1.types env2.types
+     && IdTbl.same_ignoring_locks env1.modules env2.modules
+     && IdTbl.same_ignoring_locks env1.modtypes env2.modtypes
+     && IdTbl.same_ignoring_locks env1.classes env2.classes
+     && env1.cltypes == env2.cltypes
+     && env1.jkinds == env2.jkinds
+     && env1.functor_args == env2.functor_args
+     && env1.local_constraints == env2.local_constraints
+     && env1.implicit_jkinds == env2.implicit_jkinds
+     && env1.stage = env2.stage
+     && env1.persistent_scope = env2.persistent_scope
+     && env1.flags = env2.flags
 
 (* get_components *)
 
