@@ -889,6 +889,12 @@ module Overwrites : sig
       tag that is reachable from the mutable field. *)
   val promote_mutation_to_children : t -> t
 
+  (** [is_normal t] holds unless [t] records overwrites on a tag that was
+      mutated in some branch (which only results from [choose]). [seq] and [par]
+      are the identity on normal arguments when the other argument is [empty]
+      (on either side), and they always return normal results. *)
+  val is_normal : t -> bool
+
   (** We may not overwrite a tag we do not know. At the end of the analysis,
       this function should be called to ensure all overwrites are on known tags.
   *)
@@ -1003,6 +1009,10 @@ end = struct
               overwritten;
           was_mutated
         }
+
+  let is_normal = function
+    | Tags { was_mutated; _ } -> not was_mutated
+    | Tag_was_mutated -> true
 
   let promote_mutation_to_children t =
     match t with
@@ -1185,6 +1195,11 @@ module Usage_tree : sig
   (** Usage tree, lifted from [Usage.t] *)
   type t
 
+  (** Whether all the overwrites in the tree are normal
+      ([Overwrites.is_normal]). If so, [seq] and [par] with [empty] (on either
+      side) return a tree equal to [t], without errors or side effects. *)
+  val is_normal : t -> bool
+
   (** Sequential composition lifted from [Usage.seq] *)
   val seq : t -> t -> t
 
@@ -1246,8 +1261,20 @@ end = struct
     { children : t Projection.Map.t;
       usage : Usage.t;
       learned : Learned_tags.t;
-      overwrites : Overwrites.t
+      overwrites : Overwrites.t;
+      normal : bool
+          (** Whether the overwrites of this node and its descendants are normal
+          *)
     }
+
+  let node ~children ~usage ~learned ~overwrites =
+    let normal =
+      Overwrites.is_normal overwrites
+      && Projection.Map.for_all (fun _ child -> child.normal) children
+    in
+    { children; usage; learned; overwrites; normal }
+
+  let is_normal t = t.normal
 
   module Path = struct
     type t = Projection.t list
@@ -1267,7 +1294,7 @@ end = struct
       in
       let learned = fl t.learned in
       let overwrites = fo t.overwrites in
-      { usage; children; learned; overwrites }
+      node ~usage ~children ~learned ~overwrites
     in
     loop projs t
 
@@ -1301,7 +1328,7 @@ end = struct
     in
     let learned = fl t0.learned t1.learned in
     let overwrites = fo t0.overwrites t1.overwrites in
-    { usage; children; learned; overwrites }
+    node ~usage ~children ~learned ~overwrites
 
   let lift fu fl fo t0 t1 =
     mapi2
@@ -1324,22 +1351,17 @@ end = struct
   let par t0 t1 = lift Usage.par Learned_tags.par Overwrites.par t0 t1
 
   let empty =
-    { children = Projection.Map.empty;
-      usage = Usage.empty;
-      learned = Learned_tags.empty;
-      overwrites = Overwrites.empty
-    }
+    node ~children:Projection.Map.empty ~usage:Usage.empty
+      ~learned:Learned_tags.empty ~overwrites:Overwrites.empty
 
   let rec singleton leaf learned overwrites = function
-    | [] ->
-      { usage = leaf; children = Projection.Map.empty; learned; overwrites }
+    | [] -> node ~usage:leaf ~children:Projection.Map.empty ~learned ~overwrites
     | proj :: path ->
-      { usage = Usage.empty;
-        children =
-          Projection.Map.singleton proj (singleton leaf learned overwrites path);
-        learned = Learned_tags.empty;
-        overwrites = Overwrites.empty
-      }
+      node ~usage:Usage.empty
+        ~children:
+          (Projection.Map.singleton proj
+             (singleton leaf learned overwrites path))
+        ~learned:Learned_tags.empty ~overwrites:Overwrites.empty
 
   let rec check_no_remaining_overwritten_as { children; overwrites } =
     Projection.Map.iter
@@ -1355,16 +1377,10 @@ end = struct
         Projection.Map.map snd split_children )
     in
     Overwrites.assert_empty overwrites;
-    ( { children = children_usages;
-        usage;
-        overwrites = Overwrites.empty;
-        learned = Learned_tags.empty
-      },
-      { children = children_tags;
-        usage = Usage.empty;
-        overwrites = Overwrites.empty;
-        learned
-      } )
+    ( node ~children:children_usages ~usage ~overwrites:Overwrites.empty
+        ~learned:Learned_tags.empty,
+      node ~children:children_tags ~usage:Usage.empty
+        ~overwrites:Overwrites.empty ~learned )
 
   let rec match_with_learned_tags learned t =
     let children =
@@ -1378,14 +1394,11 @@ end = struct
         learned.children t.children
     in
     Learned_tags.assert_empty t.learned;
-    { usage = t.usage;
-      children;
-      learned = Learned_tags.empty;
-      overwrites =
-        Overwrites.match_with_learned_tags
-          (Learned_tags.extract_tags learned.learned)
-          t.overwrites
-    }
+    node ~usage:t.usage ~children ~learned:Learned_tags.empty
+      ~overwrites:
+        (Overwrites.match_with_learned_tags
+           (Learned_tags.extract_tags learned.learned)
+           t.overwrites)
 
   let rec update ~f (path : Path.t) (tree : t) : t =
     match path with
@@ -1403,9 +1416,10 @@ end = struct
             | Some child -> Some (update ~f rest child))
           tree.children
       in
-      { tree with children }
+      node ~children ~usage:tree.usage ~learned:tree.learned
+        ~overwrites:tree.overwrites
 
-  let rec print ppf { children; usage; learned; overwrites } =
+  let rec print ppf { children; usage; learned; overwrites; normal = _ } =
     let open Format in
     fprintf ppf
       "@[{ children = %a;@ usage = %a;@ learned = %a;@ overwrites = %a }@]"
@@ -1503,7 +1517,17 @@ end = struct
     let print ppf { id } = Format.fprintf ppf "{%d}" id
   end
 
-  type t = Usage_tree.t Root_id.Map.t
+  type t =
+    { trees : Usage_tree.t Root_id.Map.t;
+      cardinal : int;  (** The number of trees *)
+      all_normal : bool  (** Whether all trees are normal *)
+    }
+
+  let of_trees trees =
+    { trees;
+      cardinal = Root_id.Map.cardinal trees;
+      all_normal = Root_id.Map.for_all (fun _ t -> Usage_tree.is_normal t) trees
+    }
 
   module Path = struct
     type t = Root_id.t * Usage_tree.Path.t
@@ -1519,24 +1543,61 @@ end = struct
         path
   end
 
-  let unused = Root_id.Map.empty
+  let unused = { trees = Root_id.Map.empty; cardinal = 0; all_normal = true }
 
   (** [f] must be monotone *)
   let map2 f t0 t1 =
-    Root_id.Map.merge
-      (fun _rootid t0 t1 ->
-        match t0, t1 with
-        | None, None -> assert false
-        | None, Some t1 -> Some (f Usage_tree.empty t1)
-        | Some t0, None -> Some (f t0 Usage_tree.empty)
-        | Some t0, Some t1 -> Some (f t0 t1))
-      t0 t1
+    of_trees
+      (Root_id.Map.merge
+         (fun _rootid t0 t1 ->
+           match t0, t1 with
+           | None, None -> assert false
+           | None, Some t1 -> Some (f Usage_tree.empty t1)
+           | Some t0, None -> Some (f t0 Usage_tree.empty)
+           | Some t0, Some t1 -> Some (f t0 t1))
+         t0.trees t1.trees)
+
+  (** Same as [map2 f], for [f] such that [f Usage_tree.empty t] and
+      [f t Usage_tree.empty] are equal to [t] for normal [t], without errors or
+      side effects (see [Usage_tree.is_normal]). In that case, [f] only needs to
+      be applied to the roots present in both forests, which avoids rebuilding
+      all the trees of the larger forest. As [Root_id.Map.merge] in [map2]
+      applies [f] to roots in decreasing order, so does this function, so that
+      errors and side effects happen in the same order. *)
+  let map2_identity_on_empty f t0 t1 =
+    if not (t0.all_normal && t1.all_normal)
+    then map2 f t0 t1
+    else
+      let small, large, small_is_first =
+        if t0.cardinal <= t1.cardinal then t0, t1, true else t1, t0, false
+      in
+      let cardinal = ref large.cardinal in
+      let all_normal = ref true in
+      let trees =
+        Seq.fold_left
+          (fun trees (rootid, small_tree) ->
+            match Root_id.Map.find_opt rootid large.trees with
+            | None ->
+              incr cardinal;
+              Root_id.Map.add rootid small_tree trees
+            | Some large_tree ->
+              let tree =
+                if small_is_first
+                then f small_tree large_tree
+                else f large_tree small_tree
+              in
+              if not (Usage_tree.is_normal tree) then all_normal := false;
+              Root_id.Map.add rootid tree trees)
+          large.trees
+          (Root_id.Map.to_rev_seq small.trees)
+      in
+      { trees; cardinal = !cardinal; all_normal = !all_normal }
 
   let choose t0 t1 = map2 Usage_tree.choose t0 t1
 
-  let seq t0 t1 = map2 Usage_tree.seq t0 t1
+  let seq t0 t1 = map2_identity_on_empty Usage_tree.seq t0 t1
 
-  let par t0 t1 = map2 Usage_tree.par t0 t1
+  let par t0 t1 = map2_identity_on_empty Usage_tree.par t0 t1
 
   (* For convenience, our semirings do not have a zero.
      However, when we fold the [choose] operation we need to initialize the
@@ -1553,13 +1614,19 @@ end = struct
   let pars l = fold_left1 par l
 
   let singleton leaf learned overwrites ((rootid, path') : Path.t) =
-    Root_id.Map.singleton rootid
-      (Usage_tree.singleton leaf learned overwrites path')
+    let tree = Usage_tree.singleton leaf learned overwrites path' in
+    { trees = Root_id.Map.singleton rootid tree;
+      cardinal = 1;
+      all_normal = Usage_tree.is_normal tree
+    }
 
   (** 'fu fl fo' all must be monotone *)
-  let map fu fl fo =
-    Root_id.Map.mapi (fun _root tree ->
-        Usage_tree.mapi (fun _projs usage -> fu usage) fl fo tree)
+  let map fu fl fo t =
+    of_trees
+      (Root_id.Map.mapi
+         (fun _root tree ->
+           Usage_tree.mapi (fun _projs usage -> fu usage) fl fo tree)
+         t.trees)
 
   let quote t = map Usage.quote (fun x -> x) (fun x -> x) t
 
@@ -1568,37 +1635,45 @@ end = struct
   let check_no_remaining_overwritten_as t =
     Root_id.Map.iter
       (fun _ t -> Usage_tree.check_no_remaining_overwritten_as t)
-      t
+      t.trees
 
   let split_usage_tags t =
-    ( Root_id.Map.map (fun x -> fst (Usage_tree.split_usage_tags x)) t,
-      Root_id.Map.map (fun x -> snd (Usage_tree.split_usage_tags x)) t )
+    ( of_trees
+        (Root_id.Map.map (fun x -> fst (Usage_tree.split_usage_tags x)) t.trees),
+      of_trees
+        (Root_id.Map.map (fun x -> snd (Usage_tree.split_usage_tags x)) t.trees)
+    )
 
   let match_with_learned_tags learned t =
-    Root_id.Map.merge
-      (fun _rootid t0 t1 ->
-        match t0, t1 with
-        | None, None -> assert false
-        | None, Some t1 -> Some t1
-        | Some _, None -> None
-        | Some t0, Some t1 -> Some (Usage_tree.match_with_learned_tags t0 t1))
-      learned t
+    of_trees
+      (Root_id.Map.merge
+         (fun _rootid t0 t1 ->
+           match t0, t1 with
+           | None, None -> assert false
+           | None, Some t1 -> Some t1
+           | Some _, None -> None
+           | Some t0, Some t1 -> Some (Usage_tree.match_with_learned_tags t0 t1))
+         learned.trees t.trees)
 
   let update ~f ((root_id, tree_path) : Path.t) (forest : t) : t =
-    Root_id.Map.update root_id
-      (function
-        | None ->
-          (* Tree doesn't exist, treat as Unused and create tree *)
-          Some (Usage_tree.update ~f tree_path Usage_tree.empty)
-        | Some tree -> Some (Usage_tree.update ~f tree_path tree))
-      forest
+    let tree, cardinal =
+      match Root_id.Map.find_opt root_id forest.trees with
+      | None ->
+        (* Tree doesn't exist, treat as Unused and create tree *)
+        Usage_tree.update ~f tree_path Usage_tree.empty, forest.cardinal + 1
+      | Some tree -> Usage_tree.update ~f tree_path tree, forest.cardinal
+    in
+    { trees = Root_id.Map.add root_id tree forest.trees;
+      cardinal;
+      all_normal = forest.all_normal && Usage_tree.is_normal tree
+    }
 
   let print ppf t =
     let open Format in
     let module M = Print_utils.Map (Root_id.Map) in
     M.print
       ~key:(fun ppf { id } -> fprintf ppf "%d" id)
-      ~value:Usage_tree.print ppf t
+      ~value:Usage_tree.print ppf t.trees
 end
 
 module UF = Usage_forest
