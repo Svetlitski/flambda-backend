@@ -201,9 +201,24 @@ let clear_crc_interfaces () =
   Consistbl.clear crc_interfaces;
   interfaces := []
 
-(* Record compilation events *)
+(* Record compilation events. The event lists are kept marshalled, as they
+   are copied to the output unchanged and unmarshalling and marshalling them
+   again is expensive. *)
 
-let debug_info = ref ([] : (int * Instruct.debug_event list * string list) list)
+let debug_info = ref ([] : (int * string * string list) list)
+
+(* Read the bytes of a marshalled value, without unmarshalling it if it is in
+   the (uncompressed) format produced by [output_value]. *)
+let input_marshaled_bytes ic =
+  let pos = pos_in ic in
+  let header = really_input_string ic Marshal.header_size in
+  match String.get_int32_be header 0 with
+  | 0x8495A6BEl (* small *) | 0x8495A6BFl (* big *) ->
+    let data_size = Marshal.data_size (Bytes.unsafe_of_string header) 0 in
+    header ^ really_input_string ic data_size
+  | _ ->
+    seek_in ic pos;
+    Marshal.to_string (Marshal.from_channel ic : Obj.t) []
 
 (* Link in a compilation unit *)
 
@@ -221,11 +236,12 @@ let link_compunit output_fun currpos_fun inchan file_name compunit =
   Symtable.patch_object code_block compunit.cu_reloc;
   if !Clflags.debug && compunit.cu_debug > 0 then begin
     seek_in inchan compunit.cu_debug;
-    let debug_event_list : Instruct.debug_event list =
+    (* The marshalled [Instruct.debug_event list] *)
+    let debug_event_list =
       (* CR ocaml 5 compressed-marshal:
       Compression.input_value inchan
       *)
-      Marshal.from_channel inchan
+      input_marshaled_bytes inchan
     in
     let debug_dirs : string list =
       (* CR ocaml 5 compressed-marshal:
@@ -297,7 +313,7 @@ let output_debug_info oc =
   List.iter
     (fun (ofs, evl, debug_dirs) ->
       output_binary_int oc ofs;
-      output_value oc evl;
+      output_string oc evl;
       output_value oc debug_dirs)
     !debug_info;
   debug_info := []
