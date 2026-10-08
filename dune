@@ -620,8 +620,6 @@
   probe_emission
   simd
   simd_selection
-  amd64_simd_defs
-  amd64_simd_instrs
   stack_check
   sub_cfg
   reg
@@ -764,7 +762,30 @@
   arm64_ast
   dwarf_low
   dwarf_high
-  binary_emitter_intf))
+  binary_emitter_intf
+  amd64_simd))
+
+; The SIMD instruction tables are large and slow to compile, and do not depend
+; on the rest of the compiler. They are kept in a separate library (merged
+; into ocamloptcomp's archives below) so that they are not compiled only after
+; all of ocamloptcomp's dependencies.
+
+(library
+ (name amd64_simd)
+ (wrapped false)
+ (modes byte native)
+ (flags
+  (:standard
+   -strict-sequence
+   -bin-annot
+   -safe-string
+   -strict-formats
+   -w -27-32-33-34-37-39-60-69-70))
+ (ocamlopt_flags
+  (:standard (:include %{project_root}/ocamlopt_flags.sexp)))
+ (instrumentation
+  (backend bisect_ppx))
+ (modules amd64_simd_defs amd64_simd_instrs))
 
 (library
  (name oxcaml_common)
@@ -891,6 +912,7 @@
    %{dep:middle_end/flambda2/parser/flambda2_parser.a}
    %{dep:external/owee/compiler_owee.a}
    %{dep:external/gc-timings/gc_timings.a}
+   %{dep:amd64_simd.a}
    %{dep:ocamloptcomp.a}
    %{dep:middle_end/flambda2/to_cmm/flambda2_to_cmm.a}
    %{dep:middle_end/flambda2/flambda2.a})))
@@ -932,6 +954,7 @@
    %{dep:middle_end/flambda2/parser/flambda2_parser.cma}
    %{dep:external/owee/compiler_owee.cma}
    %{dep:external/gc-timings/gc_timings.cma}
+   %{dep:amd64_simd.cma}
    %{dep:ocamloptcomp.cma}
    %{dep:middle_end/flambda2/to_cmm/flambda2_to_cmm.cma}
    %{dep:middle_end/flambda2/flambda2.cma})))
@@ -973,6 +996,7 @@
    %{dep:middle_end/flambda2/parser/flambda2_parser.cmxa}
    %{dep:external/owee/compiler_owee.cmxa}
    %{dep:external/gc-timings/gc_timings.cmxa}
+   %{dep:amd64_simd.cmxa}
    %{dep:ocamloptcomp.cmxa}
    %{dep:middle_end/flambda2/to_cmm/flambda2_to_cmm.cmxa}
    %{dep:middle_end/flambda2/flambda2.cmxa})))
@@ -1029,6 +1053,7 @@
   (glob_files .ocamlfrontend.objs/byte/*.{cmi,cmt,cmti})
   (glob_files .ocamlbytecomp.objs/byte/*.{cmi,cmt,cmti})
   (glob_files .ocamloptcomp.objs/byte/*.{cmi,cmt,cmti})
+  (glob_files .amd64_simd.objs/byte/*.{cmi,cmt,cmti})
   (glob_files .ocamljcomp.objs/byte/*.{cmi,cmt,cmti})
   (glob_files .oxcaml_common.objs/byte/*.{cmi,cmt,cmti})
   (alias_rec middle_end/check)
@@ -1056,6 +1081,8 @@
   (glob_files .ocamlcommon.objs/native/*.cmx)
   (glob_files .ocamloptcomp.objs/byte/*.{cmi,cmo,cmt,cmti})
   (glob_files .ocamloptcomp.objs/native/*.cmx)
+  (glob_files .amd64_simd.objs/byte/*.{cmi,cmo,cmt,cmti})
+  (glob_files .amd64_simd.objs/native/*.cmx)
   (glob_files
    backend/asm_targets/.asm_targets.objs/byte/*.{cmi,cmo,cmt,cmti})
   (glob_files_rec backend/asm_targets/.asm_targets.objs/native/*.cmx)
