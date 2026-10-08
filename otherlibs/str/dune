@@ -19,7 +19,7 @@
  (flags (
    :standard
    -strict-sequence -absname -w +67+70
-   -bin-annot -safe-string -strict-formats
+   -safe-string -strict-formats
  ))
  (ocamlopt_flags (:standard (:include %{project_root}/ocamlopt_flags.sexp)))
  (library_flags (:standard -linkall))

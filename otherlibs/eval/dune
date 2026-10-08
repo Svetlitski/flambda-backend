@@ -41,7 +41,6 @@
    -extension=runtime_metaprogramming
    -strict-sequence
    -absname
-   -bin-annot
    -safe-string
    -strict-formats))
  (ocamlopt_flags

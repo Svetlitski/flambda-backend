@@ -23,7 +23,6 @@
    -strict-sequence
    -g
    -absname
-   -bin-annot
    -extension runtime_metaprogramming
    -nostdlib
    -safe-string

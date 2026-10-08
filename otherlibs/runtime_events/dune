@@ -20,7 +20,6 @@
   (:standard
    -strict-sequence
    -absname
-   -bin-annot
    -safe-string
    -strict-formats))
  (ocamlopt_flags (:standard (:include %{project_root}/ocamlopt_flags.sexp)))

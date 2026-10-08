@@ -21,7 +21,6 @@
  (flags
   (:standard
    -absname
-   -bin-annot
    -g
    -safe-string
    -strict-sequence

@@ -136,7 +136,6 @@
  (flags
   (:standard
    -strict-sequence
-   -bin-annot
    -safe-string
    -strict-formats
    -w
@@ -234,7 +233,6 @@
  (flags
   (:standard
    -strict-sequence
-   -bin-annot
    -safe-string
    -strict-formats
    -w
@@ -392,7 +390,7 @@
  (name ocamlbytecomp)
  (wrapped false)
  (flags
-  (:standard -strict-sequence -w +67 -bin-annot -safe-string -strict-formats))
+  (:standard -strict-sequence -w +67 -safe-string -strict-formats))
  (ocamlopt_flags
   (:standard (:include %{project_root}/ocamlopt_flags.sexp)))
  (libraries ocamlfrontend)
@@ -436,7 +434,7 @@
  (name ocamljcomp)
  (wrapped false)
  (flags
-  (:standard -strict-sequence -w +67 -bin-annot -safe-string -strict-formats))
+  (:standard -strict-sequence -w +67 -safe-string -strict-formats))
  (ocamlopt_flags
   (:standard (:include %{project_root}/ocamlopt_flags.sexp)))
  (libraries ocamlfrontend flambda2)
@@ -559,7 +557,6 @@
  (flags
   (:standard
    -strict-sequence
-   -bin-annot
    -safe-string
    -strict-formats
    -w -27-32-33-34-37-39-60-69-70))
@@ -799,7 +796,6 @@
  (flags
   (:standard
    -strict-sequence
-   -bin-annot
    -safe-string
    -strict-formats
    -w -27-32-33-34-37-39-60-69-70))
@@ -817,7 +813,6 @@
  (flags
   (:standard
    -strict-sequence
-   -bin-annot
    -safe-string
    -strict-formats
    -w
