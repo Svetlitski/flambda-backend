@@ -17,3 +17,13 @@ OCAMLRUNPARAM="Xframe_index_check=1" ${program} && echo "check ok"
 readelf -S -W ${program} | sed -E 's/^ *\[ *[0-9]+\] *//' \
   | awk '/^caml_frame_index / { print $1, $2, $7;
                                 if ($5 == "000040") print "header only" }'
+
+# The position-independent variant must really have produced one, or it would
+# pass without testing anything.
+if [ -n "${frametable_index_expect_pie:-}" ]; then
+  if readelf -h ${program} | grep -q 'Type: *DYN'; then
+    echo "position-independent executable"
+  else
+    echo "not a position-independent executable"
+  fi
+fi

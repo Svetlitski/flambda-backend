@@ -41,7 +41,13 @@
     finds both in the same cache line. The regions are sized from the
     reservation recorded in the header (fields [reserved_entries] and
     [bucket_budget]), not from the final entry counts, so their offsets can be
-    computed before the index is built. *)
+    computed before the index is built.
+
+    The header holds no absolute addresses: the start of the covered text and
+    the bounds of the frametables section ([text_lo], [ft_lo], [ft_hi]) are
+    signed offsets from the start of the header, so that the index works
+    unchanged in a position-independent executable, whatever address it is
+    loaded at, and needs no dynamic relocations. *)
 
 [@@@ocaml.warning "+a-40-41-42"]
 

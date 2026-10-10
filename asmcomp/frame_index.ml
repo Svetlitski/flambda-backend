@@ -93,6 +93,10 @@ let read_u64 buf pos =
   then Misc.fatal_errorf "Frame_index: 64-bit value out of range"
   else lo lor (hi lsl 32)
 
+let read_i64 buf pos =
+  let lo = read_u32 buf pos and hi = read_u32 buf (pos + 4) in
+  Int64.to_int Int64.(logor (of_int lo) (shift_left (of_int hi) 32))
+
 let find_section_of_type (sections : Elf.section array) ty =
   Array.find_opt
     (fun (section : Elf.section) ->
@@ -450,7 +454,11 @@ let make_index ~file ~layout ~ft_lo ~ft_hi descriptors =
     largest_bucket = !largest_bucket
   }
 
-let serialize index =
+(* [index_vaddr] is the address of the header ([caml_frame_index_data]). The
+   header stores the covered text and the frametables section relative to it, so
+   that the index needs no relocation when a position-independent executable is
+   loaded at a random address. *)
+let serialize ~index_vaddr index =
   let layout = index.layout in
   let bytes = Bytes.make (Layout.total_bytes layout) '\000' in
   let set_u32 pos v = Bytes.set_int32_le bytes pos (Int32.of_int v) in
@@ -458,11 +466,11 @@ let serialize index =
   Bytes.set_int64_le bytes Layout.magic_offset Layout.magic;
   set_u32 Layout.version_offset Layout.version;
   set_u32 Layout.shift_offset index.shift;
-  set_u64 Layout.text_lo_offset index.text_lo;
+  set_u64 Layout.text_lo_offset (index.text_lo - index_vaddr);
   set_u64 Layout.num_granules_offset index.num_granules;
   set_u64 Layout.num_entries_offset (Array.length index.entries);
-  set_u64 Layout.ft_lo_offset index.ft_lo;
-  set_u64 Layout.ft_hi_offset index.ft_hi;
+  set_u64 Layout.ft_lo_offset (index.ft_lo - index_vaddr);
+  set_u64 Layout.ft_hi_offset (index.ft_hi - index_vaddr);
   set_u32 Layout.reserved_entries_offset layout.reserved_entries;
   set_u32 Layout.bucket_budget_offset layout.bucket_budget;
   Array.iteri
@@ -479,12 +487,14 @@ let serialize index =
   bytes
 
 (* The runtime's lookup ([caml_find_frame_descr]), run against the index as
-   written to the file. Returns the descriptor's virtual address. *)
-let lookup buf ~at pc =
+   written to the file, which lies at file offset [at] and virtual address
+   [index_vaddr]. Returns the descriptor's virtual address. *)
+let lookup buf ~at ~index_vaddr pc =
   let u32 ofs = read_u32 buf (at + ofs) in
   let u64 ofs = read_u64 buf (at + ofs) in
+  let vaddr ofs = index_vaddr + read_i64 buf (at + ofs) in
   let shift = u32 Layout.shift_offset in
-  let text_lo = u64 Layout.text_lo_offset in
+  let text_lo = vaddr Layout.text_lo_offset in
   let num_granules = u64 Layout.num_granules_offset in
   let layout =
     Layout.of_header
@@ -505,12 +515,12 @@ let lookup buf ~at pc =
       else
         let entry = entries + (Layout.entry_size * i) in
         if u32 entry = off
-        then Some (u64 Layout.ft_lo_offset + u32 (entry + 4))
+        then Some (vaddr Layout.ft_lo_offset + u32 (entry + 4))
         else scan (i + 1)
     in
     scan lo
 
-let self_check ~file buf ~at index =
+let self_check ~file buf ~at ~index_vaddr index =
   let entries = index.entries in
   let num_entries = Array.length entries in
   let is_retaddr pc =
@@ -531,13 +541,15 @@ let self_check ~file buf ~at index =
   let fail retaddr = raise (Error (Self_check_failed { file; retaddr })) in
   Array.iter
     (fun (retaddr, body) ->
-      match lookup buf ~at retaddr with
+      match lookup buf ~at ~index_vaddr retaddr with
       | Some found when found = body -> ()
       | Some _ | None -> fail retaddr)
     entries;
   (* Addresses next to descriptors, and beyond both ends of the covered text,
      must not be found. *)
-  let expect_absent pc = if lookup buf ~at pc <> None then fail pc in
+  let expect_absent pc =
+    if lookup buf ~at ~index_vaddr pc <> None then fail pc
+  in
   let stride = max 1 (num_entries / 64) in
   let i = ref 0 in
   while !i < num_entries do
@@ -630,7 +642,8 @@ let build unix ~file =
               name)
           skipped;
       let index = make_index ~file ~layout ~ft_lo ~ft_hi descriptors in
-      let bytes = serialize index in
+      let index_vaddr = to_int index_sym.st_value in
+      let bytes = serialize ~index_vaddr index in
       let oc = open_out_gen [Open_wronly; Open_binary] 0 file in
       Fun.protect
         ~finally:(fun () -> close_out oc)
@@ -638,7 +651,7 @@ let build unix ~file =
           seek_out oc at;
           output_bytes oc bytes);
       let buf = Buf.map_binary (module Unix) file in
-      self_check ~file buf ~at index;
+      self_check ~file buf ~at ~index_vaddr index;
       if !Clflags.verbose
       then
         Printf.eprintf

@@ -10,15 +10,23 @@
    flags = "-g -no-frametable-index";
    reference = "${test_source_directory}/frametable_index.no_index.reference";
    native;
+ }{
+   shared-libraries;
+   flags = "-g -runtime-variant _pic -ccopt -pie";
+   set frametable_index_expect_pie = "1";
+   reference = "${test_source_directory}/frametable_index.pie.reference";
+   native;
  }
 *)
 
-(* The runtime finds frame descriptors through the index that ocamlopt stores
-   in the executable after linking (see asmcomp/frame_index.ml), or, when
-   linked with -no-frametable-index, through a hash table built at startup.
-   The accompanying [.run] script checks the runtime's report and the section
-   holding the index. The program itself exercises lookups: minor and major
-   collections scan a deep stack holding live values, and backtraces walk it. *)
+(* The runtime finds frame descriptors through the index that ocamlopt stores in
+   the executable after linking (see asmcomp/frame_index.ml), or, when linked
+   with -no-frametable-index, through a hash table built at startup. The index
+   must also work in a position-independent executable, which is loaded at a
+   random address. The accompanying [.run] script checks the runtime's report
+   and the section holding the index. The program itself exercises lookups:
+   minor and major collections scan a deep stack holding live values, and
+   backtraces walk it. *)
 
 let () = Printexc.record_backtrace true
 

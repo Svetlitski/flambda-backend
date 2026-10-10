@@ -346,13 +346,16 @@ static void init_frame_index(caml_frame_descrs *fds)
     round_up(sizeof(uint32_t) * (budget + 1), Frame_index_region_align);
   uintnat entries_region =
     round_up(sizeof(frame_index_entry) * reserved, Frame_index_region_align);
+  /* The addresses in the header are signed offsets from the header
+     itself; unsigned addition wraps them into absolute addresses. */
+  uintnat base = (uintnat)hdr;
   fds->index = hdr;
   fds->index_shift = caml_read_unaligned_uint32(hdr + Frame_index_shift_ofs);
-  fds->index_text_lo = read_u64(hdr + Frame_index_text_lo_ofs);
+  fds->index_text_lo = base + read_u64(hdr + Frame_index_text_lo_ofs);
   fds->index_num_granules = read_u64(hdr + Frame_index_num_granules_ofs);
   fds->index_num_entries = read_u64(hdr + Frame_index_num_entries_ofs);
-  fds->index_ft_lo = read_u64(hdr + Frame_index_ft_lo_ofs);
-  fds->index_ft_hi = read_u64(hdr + Frame_index_ft_hi_ofs);
+  fds->index_ft_lo = base + read_u64(hdr + Frame_index_ft_lo_ofs);
+  fds->index_ft_hi = base + read_u64(hdr + Frame_index_ft_hi_ofs);
   fds->index_bytes = Frame_index_header_size + bucket_region + entries_region;
   fds->index_bucket = (const uint32_t *)(hdr + Frame_index_header_size);
   fds->index_entries = (const frame_index_entry *)

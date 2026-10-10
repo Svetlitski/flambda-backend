@@ -293,11 +293,11 @@ Caml_inline bool frame_has_debug(frame_descr *d) {
  *      0  u64 magic             CAML_FRAME_INDEX_MAGIC; 0 means absent
  *      8  u32 version           CAML_FRAME_INDEX_VERSION
  *     12  u32 shift             log2 of the granule size in bytes
- *     16  u64 text_lo           lowest covered return address, granule-aligned
+ *     16  i64 text_lo           lowest covered return address, granule-aligned
  *     24  u64 num_granules      G
  *     32  u64 num_entries       N
- *     40  u64 ft_lo             start of the caml_frametables section
- *     48  u64 ft_hi             end of the caml_frametables section
+ *     40  i64 ft_lo             start of the caml_frametables section
+ *     48  i64 ft_hi             end of the caml_frametables section
  *     56  u32 reserved_entries  R >= N, the section's capacity
  *     60  u32 bucket_budget     B >= G
  *   bucket table at 64: u32 bucket[G + 1], in a region of
@@ -305,6 +305,12 @@ Caml_inline bool frame_has_debug(frame_descr *d) {
  *      first entry whose return address lies in granule g; bucket[G] = N
  *   entries: struct { u32 pc_off; u32 descr_off; } entry[N], in a
  *      region of round_up(8 * R, 64) bytes
+ *
+ * The three addresses text_lo, ft_lo and ft_hi are stored as offsets
+ * from the start of the header, and the runtime adds the header's
+ * address to them once at startup. The index therefore holds no absolute
+ * addresses: it needs no dynamic relocations and works in
+ * position-independent executables, wherever they are loaded.
  *
  * Entries are sorted by return address; entry i has return address
  * text_lo + (g << shift) + entry[i].pc_off for its granule g, and its
